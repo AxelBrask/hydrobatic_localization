@@ -1,0 +1,39 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/axel/colcon_ws/install/smarc_msgs/include/**",
+        "/home/axel/colcon_ws/install/smarc_mission_msgs/include/**",
+        "/home/axel/colcon_ws/install/sbg_driver/include/**",
+        "/home/axel/colcon_ws/install/sam_msgs/include/**",
+        "/home/axel/colcon_ws/install/sam_graph_slam_2_msgs/include/**",
+        "/home/axel/colcon_ws/install/dead_reckoning_msgs/include/**",
+        "/home/axel/acomms/install/smarc_acomms_msgs/include/**",
+        "/home/axel/acomms/install/smarc_acomms_client_msgs/include/**",
+        "/home/axel/acomms/install/smarc_acomms_client/include/**",
+        "/home/axel/acomms/install/ros_babel_fish_test_msgs/include/**",
+        "/home/axel/acomms/install/ros_babel_fish/include/**",
+        "/home/axel/acomms/install/nocs_acoustic_network/include/**",
+        "/home/axel/acomms/install/lcat_msgs/include/**",
+        "/home/axel/acomms/install/labust_msgs/include/**",
+        "/opt/ros/humble/include/**",
+        "/home/axel/colcon_ws/src/smarc2/drivers/sbg_ros2_driver/include/**",
+        "/home/axel/colcon_ws/src/smarc2/drivers/stim300/include/**",
+        "/home/axel/colcon_ws/src/smarc2/navigation/dead_reckoning/tf_convenience_topics/include/**",
+        "/home/axel/colcon_ws/src/smarc2/navigation/localization/ThesisDR/hydrobatic_localization/include/**",
+        "include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}
