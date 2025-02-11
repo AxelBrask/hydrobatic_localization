@@ -17,19 +17,43 @@ find_package(nav_msgs REQUIRED)
 find_package(sam_msgs REQUIRED)
 find_package(smarc_msgs REQUIRED)
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+
 
 # GTSAM stuff
 find_package(GTSAMCMakeTools)
 find_package(GTSAM REQUIRED)
 include_directories(${GTSAM_INCLUDE_DIR})
+include_directories(${PROJECT_SOURCE_DIR}/include/hydrobatic_localization)
 
 add_executable(hydrobatic_localization src/main.cpp)
 ament_target_dependencies(hydrobatic_localization rclcpp sensor_msgs
-                           smarc_msgs std_msgs nav_msgs sam_msgs sam_msgs)
+                           smarc_msgs std_msgs nav_msgs sam_msgs sam_msgs tf2 tf2_ros tf2_geometry_msgs geometry_msgs)
 target_link_libraries(hydrobatic_localization gtsam Eigen3::Eigen)
 
+add_executable(state_estimator src/state_estimator_node.cpp src/gtsam_graph.cpp)
+ament_target_dependencies(state_estimator
+  rclcpp
+  sensor_msgs
+  std_msgs
+  nav_msgs
+  sam_msgs
+  smarc_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  geometry_msgs
+)
+target_link_libraries(state_estimator
+  gtsam
+  Eigen3::Eigen
+)
 install(TARGETS
   hydrobatic_localization
+  state_estimator
   DESTINATION lib/${PROJECT_NAME})
 
 
