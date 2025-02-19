@@ -16,7 +16,7 @@ void GtsamGraph::initGraphAndState(const Rot3& initial_rot, const Point3& initia
   graph_.addPrior<Pose3>(X(0), prior_pose, pose_noise);
   graph_.addPrior<Vector3>(V(0), prior_velocity, velocity_noise);
   graph_.addPrior<imuBias::ConstantBias>(B(0), prior_imu_bias, bias_noise);
-  graph_.addPrior<imuBias::ConstantBias>(B2(0), prior_sbg_bias, bias_noise);
+  graph_.addPrior<imuBias::ConstantBias>(B2(0), prior_sbg_bias, bias_noise); 
 
   // Insert initial estimates
   initial_estimate_.insert(X(0), prior_pose);

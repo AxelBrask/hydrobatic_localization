@@ -21,7 +21,7 @@ StateEstimator::StateEstimator()
 
   sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
       sam_msgs::msg::Topics::SBG_IMU_TOPIC, 10,
-      std::bind(&StateEstimator::imu_callback, this, std::placeholders::_1));
+      std::bind(&StateEstimator::sbg_callback, this, std::placeholders::_1));
 
   dvl_sub_ = this->create_subscription<smarc_msgs::msg::DVL>(
       sam_msgs::msg::Topics::DVL_TOPIC, 10,
@@ -31,9 +31,9 @@ StateEstimator::StateEstimator()
       sam_msgs::msg::Topics::DEPTH_TOPIC, 10,
       std::bind(&StateEstimator::barometer_callback, this, std::placeholders::_1));
 
-  // gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
-  //     smarc_msgs::msg::Topics::GPS_TOPIC, 10,
-  //     std::bind(&StateEstimator::gps_callback, this, std::placeholders::_1));
+  gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
+      smarc_msgs::msg::Topics::GPS_TOPIC, 10,
+      std::bind(&StateEstimator::gps_callback, this, std::placeholders::_1));
 
   // Use simulation time.
   this->set_parameter(rclcpp::Parameter("use_sim_time", true));
@@ -88,13 +88,6 @@ void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg) {
 
 void StateEstimator::sbg_callback(const sensor_msgs::msg::Imu::SharedPtr msg){
     if (!is_graph_initialized_) {
-    // number_of_imu_measurements++;
-    // Rot3 imu_rotation = Rot3::Quaternion(msg->orientation.w,
-    //                                        msg->orientation.x,
-    //                                        msg->orientation.y,
-    //                                        msg->orientation.z);
-    // estimated_rotations_.push_back(imu_rotation);
-    // last_time_ = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
     return;
   }
 
@@ -137,48 +130,72 @@ void StateEstimator::dvl_callback(const smarc_msgs::msg::DVL::SharedPtr msg) {
     latest_dvl_measurement_ = vel_baselink;
     new_dvl_measurement_ = true;
 
-    // Publish the transformed DVL velocity.
-    smarc_msgs::msg::DVL transformed_dvl_msg;
-    transformed_dvl_msg.header.stamp = this->get_clock()->now();
-    transformed_dvl_msg.velocity.x = vel_baselink.x();
-    transformed_dvl_msg.velocity.y = vel_baselink.y();
-    transformed_dvl_msg.velocity.z = vel_baselink.z();
-    dvl_pub_->publish(transformed_dvl_msg);
   } catch (tf2::TransformException &ex) {
     RCLCPP_WARN(this->get_logger(), "Could not transform DVL velocity: %s", ex.what());
   }
 }
 
 void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::SharedPtr msg) {
+
   Vector3 base_to_pressure_offset(-0.503, 0.025, 0.057);
   Rot3 R = previous_state_.pose().rotation();
+  double measured_pressure = msg->fluid_pressure;
+  double depth = -(measured_pressure - atmospheric_pressure_) / 9806.65; //Down negative
   Vector3 rotated_offset = R.rotate(base_to_pressure_offset);
-  if (!is_graph_initialized_ || first_barometer_measurement_ == 0.0) {
-    double measured_pressure = msg->fluid_pressure;
-    first_barometer_measurement_ = (measured_pressure- atmospheric_pressure_) / 9806.65 - rotated_offset.z();
 
-    RCLCPP_INFO(this->get_logger(), "First depth measurement: %f", first_barometer_measurement_);
+
+
+  if (!is_graph_initialized_ || first_barometer_measurement_ == 0.0) {
+            try {
+        transformStamped = tf_buffer_.lookupTransform("map_gt", "sam_auv_v1/odom_gt",
+                                                        tf2::TimePointZero, std::chrono::seconds(1));
+        static_offset_ = transformStamped.transform.translation.z;
+
+
+      } catch (tf2::TransformException &ex) {
+        RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
+        return;
+      }
+
+    first_barometer_measurement_ =  - static_offset_ - depth ;
+
     return;
   }
-  double measured_pressure = msg->fluid_pressure;
-  double depth = (measured_pressure - atmospheric_pressure_) / 9806.65;
-
-  latest_depth_measurement_ = -depth - rotated_offset.z()- first_barometer_measurement_;
   
+  latest_depth_measurement_ =  depth - rotated_offset.z() - static_offset_;
+  // RCLCPP_INFO(this->get_logger(), "Depth: %f", latest_depth_measurement_);
   new_barometer_measurement_received_ = true;
 }
 
 void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
   if (!converter_initialized_) {
-    GeographicLib::LocalCartesian temp_cart(msg->latitude, msg->longitude, msg->altitude);
-    double lat_bl, lon_bl, alt_bl;
-    temp_cart.Reverse(-0.528, 0.0, -0.071, lat_bl, lon_bl, alt_bl);
-    local_cartesian_ = std::make_unique<GeographicLib::LocalCartesian>(lat_bl, lon_bl, alt_bl);
-    converter_initialized_ = true;
+    try {
+        transformStamped = tf_buffer_.lookupTransform("sam_auv_v1/gps_link_gt","sam_auv_v1/odom_gt",
+                                                        tf2::TimePointZero, std::chrono::seconds(1));
+        gtsam::Point3 gps_to_odom_offset = Point3(transformStamped.transform.translation.x,
+                                  transformStamped.transform.translation.y,
+                                  transformStamped.transform.translation.z);
+      RCLCPP_INFO(this->get_logger(), "GPS to Odom Offset: [%f, %f, %f]",
+                  gps_to_odom_offset.x(), gps_to_odom_offset.y(), gps_to_odom_offset.z());
+
+      GeographicLib::LocalCartesian temp_cart(msg->latitude, msg->longitude, msg->altitude);
+      double lat_bl, lon_bl, alt_bl;
+      temp_cart.Reverse(gps_to_odom_offset.x(), gps_to_odom_offset.y(), gps_to_odom_offset.z(), lat_bl, lon_bl, alt_bl);
+      local_cartesian_ = std::make_unique<GeographicLib::LocalCartesian>(lat_bl, lon_bl, alt_bl);
+      converter_initialized_ = true;
+
+      } catch (tf2::TransformException &ex) {
+        RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
+        return;
+      }
+
   }
   double x, y, z;
   local_cartesian_->Forward(msg->latitude, msg->longitude, msg->altitude, x, y, z);
-  latest_gps_point_ = Point3(x, y, z);
+  RCLCPP_INFO(this->get_logger(), "GPS point in odom_frame [%f, %f, %f]", x, y, z);
+  Vector3 base_to_gps_offset(0.528 ,0.0, 0.071);
+  latest_gps_point_ = Point3(x-base_to_gps_offset.x(),y-base_to_gps_offset.y(),z-base_to_gps_offset.z()); // change becuase of odom being twisted +90 in z
+  RCLCPP_INFO(this->get_logger(), "GPS point: [%f, %f, %f]", latest_gps_point_.x(), latest_gps_point_.y(), latest_gps_point_.z());
   new_gps_measurement_ = true;
 }
 
@@ -195,7 +212,7 @@ void StateEstimator::KeyframeTimerCallback() {
   if (!is_graph_initialized_) {
       // Rot3 inital_orientation = averageRotations(estimated_rotations_);
       try {
-        transformStamped = tf_buffer_.lookupTransform("map_gt", "sam_auv_v1/base_link_gt",
+        transformStamped = tf_buffer_.lookupTransform("sam_auv_v1/odom_gt", "sam_auv_v1/base_link_gt",
                                                         tf2::TimePointZero, std::chrono::seconds(1));
         initial_position = Point3(transformStamped.transform.translation.x,
                                   transformStamped.transform.translation.y,
@@ -236,28 +253,17 @@ void StateEstimator::KeyframeTimerCallback() {
   }
 
   // If IMU is initialized, update the graph with new measurements.
-  gtsam_graph_.addImuFactor(*imu_preintegrated_, previous_state_, current_imu_bias_);
+  NavState predictes_imu_state = gtsam_graph_.addImuFactor(*imu_preintegrated_, previous_state_, current_imu_bias_);
+  RCLCPP_DEBUG(this->get_logger(), "Predicted IMU State: [%f, %f, %f]",
+              predictes_imu_state.pose().translation().x(),
+              predictes_imu_state.pose().translation().y(),
+              predictes_imu_state.pose().translation().z());
 
-  // // Publish the IMU velocity estimate.
-  // nav_msgs::msg::Odometry imu_odom_msg;
-  // imu_odom_msg.header.stamp = this->get_clock()->now();
-  // imu_odom_msg.header.frame_id = "sam_auv_v1/odom_gt";
-  // imu_odom_msg.child_frame_id = "sam_auv_v1/base_link_gt";
-  // imu_odom_msg.pose.pose.position.x = predicted_state.pose().translation().x();
-  // imu_odom_msg.pose.pose.position.y = predicted_state.pose().translation().y();
-  // imu_odom_msg.pose.pose.position.z = predicted_state.pose().translation().z();
-  // Quaternion quat_imu = predicted_state.pose().rotation().toQuaternion();
-  // imu_odom_msg.pose.pose.orientation.x = quat_imu.x();
-  // imu_odom_msg.pose.pose.orientation.y = quat_imu.y();
-  // imu_odom_msg.pose.pose.orientation.z = quat_imu.z();
-  // imu_odom_msg.pose.pose.orientation.w = quat_imu.w();
-  // imu_odom_msg.twist.twist.linear.x = predicted_state.v().x();
-  // imu_odom_msg.twist.twist.linear.y = predicted_state.v().y();
-  // imu_odom_msg.twist.twist.linear.z = predicted_state.v().z();
-  // imu_odom_pub->publish(imu_odom_msg);
-
-  NavState predicted_sbg_stat = gtsam_graph_.addSbgFactor(*sbg_preintegrated_, previous_state_, current_sbg_bias_);
-
+  NavState predicted_sbg_state = gtsam_graph_.addSbgFactor(*sbg_preintegrated_, previous_state_, current_sbg_bias_);
+  RCLCPP_DEBUG(this->get_logger(), "Predicted SBG State: [%f, %f, %f]", 
+                    predicted_sbg_state.pose().translation().x(),
+                    predicted_sbg_state.pose().translation().y(),
+                    predicted_sbg_state.pose().translation().z());
   if (new_dvl_measurement_) {
     Vector3 dvl_velocity = previous_state_.rotation() * latest_dvl_measurement_;
     gtsam_graph_.addDvlFactor(dvl_velocity);
@@ -270,7 +276,7 @@ void StateEstimator::KeyframeTimerCallback() {
   }
 
   if (new_barometer_measurement_received_) {
-    RCLCPP_INFO(this->get_logger(), "BarometerFactor Depth: %f", latest_depth_measurement_);
+    // RCLCPP_INFO(this->get_logger(), "BarometerFactor Depth: %f", latest_depth_measurement_);
     gtsam_graph_.addBarometerFactor(latest_depth_measurement_);
     new_barometer_measurement_received_ = false;
   }

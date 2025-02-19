@@ -8,12 +8,11 @@ Vector BarometerFactor::evaluateError(const Pose3 &pose,
   if (H) {
 
     *H = (Matrix(1, 6) << 0, 0, 0, 0, 0, 1).finished();
-    // std::cout << "Jacobian: " << *H << std::endl;  // Use *H to print the matrix.
   }
   double expectedPressure = pose.translation().z();
-  std::cout << "Expected Pressure: " << expectedPressure << "  MeasurredPressure: "<<measuredPressure_<< std::endl;
+  // std::cout << "Expected Pressure: " << expectedPressure << "  MeasurredPressure: "<<measuredPressure_<< std::endl;
   double error = expectedPressure - measuredPressure_;
-  std::cout << "Error: " << error << std::endl;
+  // std::cout << "Error: " << error << std::endl;
   return (Vector1(error));
 }
 

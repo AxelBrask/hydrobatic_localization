@@ -44,16 +44,7 @@ public:
 
   // Add an IMU factor (from the preintegrator) and insert a predicted state.
   // Returns the predicted state.
-/**
- * @brief Adds an IMU factor to the GTSAM graph.
- *
- * This function adds the preintegrated imu factor to the GTSAM graph.
- *
- * @param pim The preintegrated IMU measurements.
- * @param previous_state The previous state of the state estimator.
- * @param current_bias The current bias of the IMU.
- * @return The predicted state based on the IMU measurments.
- */
+
 NavState addImuFactor(const PreintegratedCombinedMeasurements& pim,
                         const NavState& previous_state,
                         const imuBias::ConstantBias& current_bias);

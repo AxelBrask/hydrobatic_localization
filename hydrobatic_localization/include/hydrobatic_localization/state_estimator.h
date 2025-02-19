@@ -116,11 +116,13 @@ private:
   bool new_barometer_measurement_received_;
   double atmospheric_pressure_;
   double latest_depth_measurement_;
+  double static_offset_;
 
   // Previous state and bias
   NavState previous_state_;
   imuBias::ConstantBias current_imu_bias_;
   imuBias::ConstantBias current_sbg_bias_;
+
 
   // Helper functions
   Rot3 averageRotations(const std::vector<Rot3>& rotations);
