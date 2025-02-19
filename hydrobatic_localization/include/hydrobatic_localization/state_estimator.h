@@ -44,6 +44,7 @@ using namespace gtsam;
 using symbol_shorthand::X;
 using symbol_shorthand::V;
 using symbol_shorthand::B;
+using symbol_shorthand::B2;
 
 class StateEstimator : public rclcpp::Node {
 public:
@@ -52,6 +53,7 @@ public:
 private:
   // ROS callbacks
   void imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg);
+  void sbg_callback(const sensor_msgs::msg::Imu::SharedPtr msg);
   void dvl_callback(const smarc_msgs::msg::DVL::SharedPtr msg);
   void barometer_callback(const sensor_msgs::msg::FluidPressure::SharedPtr msg);
   void gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
@@ -79,6 +81,8 @@ private:
 
   // Preintegrated IMU measurements (GTSAM)
   std::shared_ptr<PreintegratedCombinedMeasurements> imu_preintegrated_;
+  //Preintegrated SBG measurements (GTSAM)
+  std::shared_ptr<PreintegratedCombinedMeasurements> sbg_preintegrated_;
 
   // Instance of the GtsamGraph class
   GtsamGraph gtsam_graph_;
@@ -115,7 +119,8 @@ private:
 
   // Previous state and bias
   NavState previous_state_;
-  imuBias::ConstantBias current_bias_;
+  imuBias::ConstantBias current_imu_bias_;
+  imuBias::ConstantBias current_sbg_bias_;
 
   // Helper functions
   Rot3 averageRotations(const std::vector<Rot3>& rotations);

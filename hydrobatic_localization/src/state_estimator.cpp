@@ -19,9 +19,9 @@ StateEstimator::StateEstimator()
       sam_msgs::msg::Topics::STIM_IMU_TOPIC, 10,
       std::bind(&StateEstimator::imu_callback, this, std::placeholders::_1));
 
-  // sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
-  //     sam_msgs::msg::Topics::SBG_IMU_TOPIC, 10,
-  //     std::bind(&StateEstimator::imu_callback, this, std::placeholders::_1));
+  sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
+      sam_msgs::msg::Topics::SBG_IMU_TOPIC, 10,
+      std::bind(&StateEstimator::imu_callback, this, std::placeholders::_1));
 
   dvl_sub_ = this->create_subscription<smarc_msgs::msg::DVL>(
       sam_msgs::msg::Topics::DVL_TOPIC, 10,
@@ -51,6 +51,11 @@ StateEstimator::StateEstimator()
   imuBias::ConstantBias prior_bias;
   auto imu_param = gtsam_graph_.getImuParams();
   imu_preintegrated_ = std::make_shared<PreintegratedCombinedMeasurements>(imu_param, prior_bias);
+
+  // Initialize the SBG preintegrator using the parameters from the GTSAM side.
+  imuBias::ConstantBias prior_sbg_bias;
+  auto sbg_param = gtsam_graph_.getSbgParams();
+  sbg_preintegrated_ = std::make_shared<PreintegratedCombinedMeasurements>(sbg_param, prior_sbg_bias);
 }
 
 void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg) {
@@ -80,6 +85,32 @@ void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg) {
   imu_preintegrated_->integrateMeasurement(acc, gyro, delta_t);
   last_time_ = current_time;
 }
+
+void StateEstimator::sbg_callback(const sensor_msgs::msg::Imu::SharedPtr msg){
+    if (!is_graph_initialized_) {
+    // number_of_imu_measurements++;
+    // Rot3 imu_rotation = Rot3::Quaternion(msg->orientation.w,
+    //                                        msg->orientation.x,
+    //                                        msg->orientation.y,
+    //                                        msg->orientation.z);
+    // estimated_rotations_.push_back(imu_rotation);
+    // last_time_ = msg->header.stamp.sec + msg->header.stamp.nanosec * 1e-9;
+    return;
+  }
+
+  Vector3 acc(msg->linear_acceleration.x,
+              msg->linear_acceleration.y,
+              msg->linear_acceleration.z);
+  Vector3 gyro_raw(msg->angular_velocity.x,
+                   msg->angular_velocity.y,
+                   msg->angular_velocity.z);
+  // Adjust the gyro measurements as in the original code.
+  gyro = Vector3(-gyro_raw.x(), -gyro_raw.y(), -gyro_raw.z());
+
+  double delta_t = 1.0 / 100.0; // or use: current_time - last_time_;
+  sbg_preintegrated_->integrateMeasurement(acc, gyro, delta_t);
+}
+
 
 void StateEstimator::dvl_callback(const smarc_msgs::msg::DVL::SharedPtr msg) {
   Vector3 vel_dvl(msg->velocity.x, msg->velocity.y, msg->velocity.z);
@@ -205,25 +236,27 @@ void StateEstimator::KeyframeTimerCallback() {
   }
 
   // If IMU is initialized, update the graph with new measurements.
-  NavState predicted_state = gtsam_graph_.addImuFactor(*imu_preintegrated_, previous_state_, current_bias_);
+  gtsam_graph_.addImuFactor(*imu_preintegrated_, previous_state_, current_imu_bias_);
 
-  // Publish the IMU velocity estimate.
-  nav_msgs::msg::Odometry imu_odom_msg;
-  imu_odom_msg.header.stamp = this->get_clock()->now();
-  imu_odom_msg.header.frame_id = "sam_auv_v1/odom_gt";
-  imu_odom_msg.child_frame_id = "sam_auv_v1/base_link_gt";
-  imu_odom_msg.pose.pose.position.x = predicted_state.pose().translation().x();
-  imu_odom_msg.pose.pose.position.y = predicted_state.pose().translation().y();
-  imu_odom_msg.pose.pose.position.z = predicted_state.pose().translation().z();
-  Quaternion quat_imu = predicted_state.pose().rotation().toQuaternion();
-  imu_odom_msg.pose.pose.orientation.x = quat_imu.x();
-  imu_odom_msg.pose.pose.orientation.y = quat_imu.y();
-  imu_odom_msg.pose.pose.orientation.z = quat_imu.z();
-  imu_odom_msg.pose.pose.orientation.w = quat_imu.w();
-  imu_odom_msg.twist.twist.linear.x = predicted_state.v().x();
-  imu_odom_msg.twist.twist.linear.y = predicted_state.v().y();
-  imu_odom_msg.twist.twist.linear.z = predicted_state.v().z();
-  imu_odom_pub->publish(imu_odom_msg);
+  // // Publish the IMU velocity estimate.
+  // nav_msgs::msg::Odometry imu_odom_msg;
+  // imu_odom_msg.header.stamp = this->get_clock()->now();
+  // imu_odom_msg.header.frame_id = "sam_auv_v1/odom_gt";
+  // imu_odom_msg.child_frame_id = "sam_auv_v1/base_link_gt";
+  // imu_odom_msg.pose.pose.position.x = predicted_state.pose().translation().x();
+  // imu_odom_msg.pose.pose.position.y = predicted_state.pose().translation().y();
+  // imu_odom_msg.pose.pose.position.z = predicted_state.pose().translation().z();
+  // Quaternion quat_imu = predicted_state.pose().rotation().toQuaternion();
+  // imu_odom_msg.pose.pose.orientation.x = quat_imu.x();
+  // imu_odom_msg.pose.pose.orientation.y = quat_imu.y();
+  // imu_odom_msg.pose.pose.orientation.z = quat_imu.z();
+  // imu_odom_msg.pose.pose.orientation.w = quat_imu.w();
+  // imu_odom_msg.twist.twist.linear.x = predicted_state.v().x();
+  // imu_odom_msg.twist.twist.linear.y = predicted_state.v().y();
+  // imu_odom_msg.twist.twist.linear.z = predicted_state.v().z();
+  // imu_odom_pub->publish(imu_odom_msg);
+
+  NavState predicted_sbg_stat = gtsam_graph_.addSbgFactor(*sbg_preintegrated_, previous_state_, current_sbg_bias_);
 
   if (new_dvl_measurement_) {
     Vector3 dvl_velocity = previous_state_.rotation() * latest_dvl_measurement_;
@@ -246,11 +279,13 @@ void StateEstimator::KeyframeTimerCallback() {
   gtsam_graph_.optimize();
 
   // Update the current state and bias.
-  current_bias_ = gtsam_graph_.getCurrentBias();
+  current_imu_bias_ = gtsam_graph_.getCurrentImuBias();
+  current_sbg_bias_ = gtsam_graph_.getCurrentSbgBias();
   previous_state_ = gtsam_graph_.getCurrentState();
 
   // Reset the IMU preintegrator with the updated bias.
-  imu_preintegrated_->resetIntegrationAndSetBias(current_bias_);
+  imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
+  sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
 
   // Publish the estimated odometry.
   nav_msgs::msg::Odometry odometry_msg;
@@ -270,15 +305,7 @@ void StateEstimator::KeyframeTimerCallback() {
   odometry_msg.twist.twist.linear.z = previous_state_.v().z();
   est_odometry_pub_->publish(odometry_msg);
 
-  // Broadcast the estimated pose transform.
-  geometry_msgs::msg::TransformStamped transformStamped;
-  try {
-    transformStamped = tf_buffer_.lookupTransform("sam_auv_v1/odom_gt", "sam_auv_v1/base_link_gt",
-                                                    tf2::TimePointZero);
-  } catch (tf2::TransformException &ex) {
-    RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
-    return;
-  }
+  // Broadcast estimated pose.
   geometry_msgs::msg::TransformStamped out_transform;
   out_transform.header.stamp = this->get_clock()->now();
   out_transform.header.frame_id = "sam_auv_v1/odom_gt";
