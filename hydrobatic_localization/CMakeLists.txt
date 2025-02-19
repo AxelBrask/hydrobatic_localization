@@ -21,20 +21,24 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(GeographicLib REQUIRED)
 
 
 # GTSAM stuff
 find_package(GTSAMCMakeTools)
 find_package(GTSAM REQUIRED)
 include_directories(${GTSAM_INCLUDE_DIR})
-include_directories(${PROJECT_SOURCE_DIR}/include/hydrobatic_localization)
+#include the headers
+include_directories(${PROJECT_SOURCE_DIR}/include/)
+#include GeographicLib
+include_directories(${GeographicLib_INCLUDE_DIRS})
 
-add_executable(hydrobatic_localization src/main.cpp)
+add_executable(hydrobatic_localization src/main.cpp src/BarometerFactor.cpp)
 ament_target_dependencies(hydrobatic_localization rclcpp sensor_msgs
                            smarc_msgs std_msgs nav_msgs sam_msgs sam_msgs tf2 tf2_ros tf2_geometry_msgs geometry_msgs)
-target_link_libraries(hydrobatic_localization gtsam Eigen3::Eigen)
+target_link_libraries(hydrobatic_localization gtsam Eigen3::Eigen GeographicLib::GeographicLib)
 
-add_executable(state_estimator src/state_estimator_node.cpp src/gtsam_graph.cpp)
+add_executable(state_estimator src/state_estimator.cpp src/gtsam_graph.cpp src/BarometerFactor.cpp)
 ament_target_dependencies(state_estimator
   rclcpp
   sensor_msgs
@@ -50,13 +54,16 @@ ament_target_dependencies(state_estimator
 target_link_libraries(state_estimator
   gtsam
   Eigen3::Eigen
-)
+  GeographicLib::GeographicLib
+  )
 install(TARGETS
   hydrobatic_localization
   state_estimator
   DESTINATION lib/${PROJECT_NAME})
 
-
+install(DIRECTORY include/
+  DESTINATION include/
+)
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
