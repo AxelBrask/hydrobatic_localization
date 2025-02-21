@@ -31,9 +31,9 @@ StateEstimator::StateEstimator()
       sam_msgs::msg::Topics::DEPTH_TOPIC, 10,
       std::bind(&StateEstimator::barometer_callback, this, std::placeholders::_1));
 
-  gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
-      smarc_msgs::msg::Topics::GPS_TOPIC, 10,
-      std::bind(&StateEstimator::gps_callback, this, std::placeholders::_1));
+  // gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
+  //     smarc_msgs::msg::Topics::GPS_TOPIC, 10,
+  //     std::bind(&StateEstimator::gps_callback, this, std::placeholders::_1));
 
   // Use simulation time.
   this->set_parameter(rclcpp::Parameter("use_sim_time", true));
@@ -137,11 +137,11 @@ void StateEstimator::dvl_callback(const smarc_msgs::msg::DVL::SharedPtr msg) {
 
 void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::SharedPtr msg) {
 
-  Vector3 base_to_pressure_offset(-0.503, 0.025, 0.057);
-  Rot3 R = previous_state_.pose().rotation();
+  // Vector3 base_to_pressure_offset(-0.503, 0.025, 0.057);
+  // Rot3 R = previous_state_.pose().rotation();
   double measured_pressure = msg->fluid_pressure;
   double depth = -(measured_pressure - atmospheric_pressure_) / 9806.65; //Down negative
-  Vector3 rotated_offset = R.rotate(base_to_pressure_offset);
+  // Vector3 rotated_offset = R.rotate(base_to_pressure_offset);
 
 
 
@@ -162,7 +162,7 @@ void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::S
     return;
   }
   
-  latest_depth_measurement_ =  depth - rotated_offset.z() - static_offset_;
+  latest_depth_measurement_ =  depth - static_offset_;
   // RCLCPP_INFO(this->get_logger(), "Depth: %f", latest_depth_measurement_);
   new_barometer_measurement_received_ = true;
 }
@@ -192,9 +192,12 @@ void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr m
   }
   double x, y, z;
   local_cartesian_->Forward(msg->latitude, msg->longitude, msg->altitude, x, y, z);
-  RCLCPP_INFO(this->get_logger(), "GPS point in odom_frame [%f, %f, %f]", x, y, z);
+  double x_N = -y;
+  double y_W = x;
+  double z_U = z;
+  RCLCPP_INFO(this->get_logger(), "GPS point in odom_frame [%f, %f, %f]", x_N, y_W, z_U);
   Vector3 base_to_gps_offset(0.528 ,0.0, 0.071);
-  latest_gps_point_ = Point3(x-base_to_gps_offset.x(),y-base_to_gps_offset.y(),z-base_to_gps_offset.z()); // change becuase of odom being twisted +90 in z
+  latest_gps_point_ = Point3(x_N-base_to_gps_offset.y(),y_W-base_to_gps_offset.x(),z_U-base_to_gps_offset.z()); // change becuase of odom being twisted +90 in z
   RCLCPP_INFO(this->get_logger(), "GPS point: [%f, %f, %f]", latest_gps_point_.x(), latest_gps_point_.y(), latest_gps_point_.z());
   new_gps_measurement_ = true;
 }

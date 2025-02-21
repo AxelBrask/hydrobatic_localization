@@ -13,15 +13,16 @@ namespace gtsam {
 
 class BarometerFactor : public NoiseModelFactor1<Pose3> {
  private:
-  double measuredPressure_;
+    double measuredDepth_;
+    Vector3 base_to_pressure_offset_;
 
  public:
   using Base = NoiseModelFactor1<Pose3>;
   BarometerFactor(){};
   virtual ~BarometerFactor() {}  
   // Constructor.
-  BarometerFactor(Key poseKey, double measuredPressure, const SharedNoiseModel& model)
-      : Base(model, poseKey), measuredPressure_(measuredPressure) {}
+  BarometerFactor(Key poseKey, double measuredDepth, const Vector3 base_to_pressure_offset, const SharedNoiseModel& model)
+      : Base(model, poseKey), measuredDepth_(measuredDepth), base_to_pressure_offset_(base_to_pressure_offset) {}
 
   // Override evaluateError with the exact signature.
   Vector evaluateError(const Pose3 &pose,

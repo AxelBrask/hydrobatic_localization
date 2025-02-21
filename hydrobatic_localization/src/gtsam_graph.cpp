@@ -90,7 +90,8 @@ void GtsamGraph::addGpsFactor(const Point3& gps_point) {
 
 void GtsamGraph::addBarometerFactor(double depth_measurement) {
   auto barometer_noise = noiseModel::Diagonal::Sigmas((Vector(1) << 0.01).finished());
-  graph_.add(BarometerFactor(X(current_index_+1), depth_measurement, barometer_noise));
+  Vector3 base_to_pressure_offset(-0.503, 0.025, 0.057);
+  graph_.add(BarometerFactor(X(current_index_+1), depth_measurement, base_to_pressure_offset, barometer_noise));
 }
 
 void GtsamGraph::optimize() {
