@@ -16,6 +16,7 @@
 #include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
 #include <gtsam/slam/dataset.h>
 #include <hydrobatic_localization/BarometerFactor.h>
+#include <hydrobatic_localization/DvlFactor.h>
 #include <vector>
 
 using namespace gtsam;
@@ -34,7 +35,7 @@ inline gtsam::Key B2(size_t i) {
 } // namespace symbol_shorthand
 } // namespace gtsam
 
-using symbol_shorthand::B2; // Bias2
+using symbol_shorthand::B2; // Bias for SBG
 class GtsamGraph {
 public:
   GtsamGraph();
@@ -45,15 +46,18 @@ public:
   // Add an IMU factor (from the preintegrator) and insert a predicted state.
   // Returns the predicted state.
 
-NavState addImuFactor(const PreintegratedCombinedMeasurements& pim,
+NavState addImuFactor(
                         const NavState& previous_state,
                         const imuBias::ConstantBias& current_bias);
-  
-NavState addSbgFactor(const PreintegratedCombinedMeasurements& pim,
+
+  // Add an SBG factor (from the preintegrator) and insert a predicted state.
+  // Returns the predicted state.
+NavState addSbgFactor(
                         const NavState& previous_state,
                         const imuBias::ConstantBias& current_bias);
+
   // Add additional factors when new measurements are available.
-  void addDvlFactor(const Vector3& dvl_velocity);
+  void addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro);
   void addGpsFactor(const Point3& gps_point);
   void addBarometerFactor(double depth_measurement);
 
@@ -71,6 +75,10 @@ NavState addSbgFactor(const PreintegratedCombinedMeasurements& pim,
   std::shared_ptr<PreintegratedCombinedMeasurements::Params> getImuParams();
   std::shared_ptr<PreintegratedCombinedMeasurements::Params> getSbgParams();
 
+  // Imu and Sbg integrators
+  void integrateImuMeasurement(const Vector3& acc, const Vector3& gyro, const double dt);
+  void integrateSbgMeasurement(const Vector3& acc, const Vector3& gyro, const double dt);
+
 private:
   NonlinearFactorGraph graph_;
   Values initial_estimate_;
@@ -78,6 +86,11 @@ private:
   NavState previous_state_;
   imuBias::ConstantBias current_imu_bias_;
   imuBias::ConstantBias current_sbg_bias_;
+
+    // Preintegrated IMU measurements (GTSAM)
+  std::shared_ptr<PreintegratedCombinedMeasurements> imu_preintegrated_;
+  //Preintegrated SBG measurements (GTSAM)
+  std::shared_ptr<PreintegratedCombinedMeasurements> sbg_preintegrated_;
 };
 
 #endif // GTSAMGRAPH_H

@@ -1,7 +1,19 @@
 #include "hydrobatic_localization/gtsam_graph.h"
 #include <cmath>
 
-GtsamGraph::GtsamGraph() : current_index_(0) {}
+GtsamGraph::GtsamGraph() : current_index_(0) {
+
+    // Initialize the IMU preintegrator using the parameters from the GTSAM side.
+  imuBias::ConstantBias prior_bias;
+  auto imu_param = getImuParams();
+  imu_preintegrated_ = std::make_shared<PreintegratedCombinedMeasurements>(imu_param, prior_bias);
+
+  // Initialize the SBG preintegrator using the parameters from the GTSAM side.
+  imuBias::ConstantBias prior_sbg_bias;
+  auto sbg_param = getSbgParams();
+  sbg_preintegrated_ = std::make_shared<PreintegratedCombinedMeasurements>(sbg_param, prior_sbg_bias);
+}
+
 
 void GtsamGraph::initGraphAndState(const Rot3& initial_rot, const Point3& initial_position) {
   Pose3 prior_pose(initial_rot, initial_position);
@@ -31,7 +43,15 @@ void GtsamGraph::initGraphAndState(const Rot3& initial_rot, const Point3& initia
   current_index_ = 0;
 }
 
-NavState GtsamGraph::addImuFactor(const PreintegratedCombinedMeasurements& pim,
+void GtsamGraph::integrateImuMeasurement(const Vector3& acc, const Vector3& gyro, const double dt){
+  imu_preintegrated_->integrateMeasurement(acc, gyro, dt);
+  }
+
+void GtsamGraph::integrateSbgMeasurement(const Vector3& acc, const Vector3& gyro, const double dt){
+  sbg_preintegrated_->integrateMeasurement(acc, gyro, dt);
+  }
+
+NavState GtsamGraph::addImuFactor(
                                   const NavState& previous_state,
                                   const imuBias::ConstantBias& IMU_bias) {
   // int next_index = current_index_ + 1;
@@ -39,48 +59,53 @@ NavState GtsamGraph::addImuFactor(const PreintegratedCombinedMeasurements& pim,
     X(current_index_), V(current_index_),
     X(current_index_+1),     V(current_index_+1),
     B(current_index_), B(current_index_+1),
-    pim
+    *imu_preintegrated_
   );
   graph_.add(imu_factor);
 
   // Predict state using the preintegrated measurements.
-  NavState predicted_state = pim.predict(previous_state, IMU_bias);
+  NavState predicted_state = imu_preintegrated_->predict(previous_state, current_imu_bias_);
 
   // Insert the predicted state into the initial estimate.
   initial_estimate_.insert(X(current_index_+1), predicted_state.pose());
   initial_estimate_.insert(V(current_index_+1), predicted_state.v());
-  initial_estimate_.insert(B(current_index_+1), IMU_bias);
+  initial_estimate_.insert(B(current_index_+1), current_imu_bias_);
 
   // Update the current index.
-  // current_index_ = next_index;
+  // current_index_ = next_index; 
   return predicted_state;
 }
 
  
-NavState GtsamGraph::addSbgFactor(const PreintegratedCombinedMeasurements& pim,
-                        const NavState& previous_state,
+NavState GtsamGraph::addSbgFactor(const NavState& previous_state,
                         const imuBias::ConstantBias& SBG_bias) {
 
     CombinedImuFactor imu_factor(
     X(current_index_), V(current_index_),
     X(current_index_+1), V(current_index_+1),
     B2(current_index_), B2(current_index_+1),
-    pim
+    *sbg_preintegrated_
   );
 
   graph_.add(imu_factor);
-  NavState predicted_state = pim.predict(previous_state, SBG_bias);
+  NavState predicted_state = sbg_preintegrated_->predict(previous_state, current_sbg_bias_);
 
   // initial_estimate_.insert(X(current_index_+1), predicted_state.pose());
   // initial_estimate_.insert(V(current_index_+1), predicted_state.v());
-  initial_estimate_.insert(B2(current_index_+1), SBG_bias);
+  initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
   return predicted_state;
     }
 
+/*
+ TODO: add all extrinsics to a seperate class
+*/
 
-void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity) {
-  auto dvl_noise = noiseModel::Diagonal::Sigmas((Vector(3) << 0.01, 0.01, 0.1).finished());
-  graph_.add(PriorFactor<Vector3>(V(current_index_+1), dvl_velocity, dvl_noise));
+void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro) {
+  auto dvl_noise = noiseModel::Diagonal::Sigmas((Vector(3) << 0.1, 0.1, 0.1).finished());
+  Vector3 base_link_to_dvl_offset(-0.573 ,0.0 ,0.063); // translation from dvl_link to base_link
+  Rot3 base_link_dvl_rotation = Rot3::Identity();
+  graph_.add(DvlFactor(X(current_index_+1),V(current_index_+1),B(current_index_+1),
+   dvl_velocity, gyro, base_link_to_dvl_offset, base_link_dvl_rotation, dvl_noise));
 }
 
 void GtsamGraph::addGpsFactor(const Point3& gps_point) {
@@ -104,6 +129,9 @@ void GtsamGraph::optimize() {
   current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_));
   previous_state_ = NavState(result.at<Pose3>(X(current_index_)), result.at<Vector3>(V(current_index_)));
 
+  imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
+  sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
+
 }
 
 NavState GtsamGraph::getCurrentState() const {
@@ -123,8 +151,8 @@ int GtsamGraph::getCurrentIndex() const {
 }
 
 std::shared_ptr<PreintegratedCombinedMeasurements::Params> GtsamGraph::getImuParams() {
-  double accel_noise_sigma = 2.0e-6;
-  double gyro_noise_sigma = 5.0e-6;
+  double accel_noise_sigma = 2.0e-5;
+  double gyro_noise_sigma = 5.0e-5;
   double accel_bias_rw_sigma = 1e-3;
   double gyro_bias_rw_sigma = 1e-4;
   Matrix33 measured_acc_cov = I_3x3 * pow(accel_noise_sigma, 2);
@@ -145,8 +173,8 @@ std::shared_ptr<PreintegratedCombinedMeasurements::Params> GtsamGraph::getImuPar
 }
 
 std::shared_ptr<PreintegratedCombinedMeasurements::Params> GtsamGraph::getSbgParams() {
-  double accel_noise_sigma = 2.0e-6;
-  double gyro_noise_sigma = 5.0e-6;
+  double accel_noise_sigma = 2.0e-5;
+  double gyro_noise_sigma = 5.0e-5;
   double accel_bias_rw_sigma = 1e-3;
   double gyro_bias_rw_sigma = 1e-4;
   Matrix33 measured_acc_cov = I_3x3 * pow(accel_noise_sigma, 2);

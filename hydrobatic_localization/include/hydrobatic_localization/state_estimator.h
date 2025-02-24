@@ -15,6 +15,8 @@
 #include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/point.hpp>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Matrix3x3.h>
 
 // GTSAM and GeographicLib includes
 #include <gtsam/navigation/CombinedImuFactor.h>
@@ -31,8 +33,6 @@
 #include <gtsam/navigation/GPSFactor.h>
 #include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
 #include <gtsam/slam/dataset.h>
-#include <tf2/LinearMath/Quaternion.h>
-#include <tf2/LinearMath/Matrix3x3.h>
 #include <boost/optional.hpp>
 #include <GeographicLib/LocalCartesian.hpp>
 #include <vector>
@@ -41,10 +41,6 @@
 #include "hydrobatic_localization/gtsam_graph.h"
 
 using namespace gtsam;
-using symbol_shorthand::X;
-using symbol_shorthand::V;
-using symbol_shorthand::B;
-using symbol_shorthand::B2;
 
 class StateEstimator : public rclcpp::Node {
 public:
@@ -79,13 +75,10 @@ private:
 
   rclcpp::TimerBase::SharedPtr KeyframeTimer;
 
-  // Preintegrated IMU measurements (GTSAM)
-  std::shared_ptr<PreintegratedCombinedMeasurements> imu_preintegrated_;
-  //Preintegrated SBG measurements (GTSAM)
-  std::shared_ptr<PreintegratedCombinedMeasurements> sbg_preintegrated_;
+
 
   // Instance of the GtsamGraph class
-  GtsamGraph gtsam_graph_;
+  std::unique_ptr<GtsamGraph> gtsam_graph_;
 
   // State variables
   int number_of_imu_measurements;

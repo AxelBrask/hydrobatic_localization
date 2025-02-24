@@ -24,7 +24,7 @@ class BarometerFactor : public NoiseModelFactor1<Pose3> {
   BarometerFactor(Key poseKey, double measuredDepth, const Vector3 base_to_pressure_offset, const SharedNoiseModel& model)
       : Base(model, poseKey), measuredDepth_(measuredDepth), base_to_pressure_offset_(base_to_pressure_offset) {}
 
-  // Override evaluateError with the exact signature.
+  // Override evaluateError 
   Vector evaluateError(const Pose3 &pose,
                        gtsam::OptionalMatrixType H ) const override;
 
