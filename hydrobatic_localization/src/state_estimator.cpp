@@ -27,9 +27,9 @@ StateEstimator::StateEstimator()
       sam_msgs::msg::Topics::DVL_TOPIC, 10,
       std::bind(&StateEstimator::dvl_callback, this, std::placeholders::_1));
 
-  // barometer_sub_ = this->create_subscription<sensor_msgs::msg::FluidPressure>(
-  //     sam_msgs::msg::Topics::DEPTH_TOPIC, 10,
-  //     std::bind(&StateEstimator::barometer_callback, this, std::placeholders::_1));
+  barometer_sub_ = this->create_subscription<sensor_msgs::msg::FluidPressure>(
+      sam_msgs::msg::Topics::DEPTH_TOPIC, 10,
+      std::bind(&StateEstimator::barometer_callback, this, std::placeholders::_1));
 
   // gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
   //     smarc_msgs::msg::Topics::GPS_TOPIC, 10,
@@ -37,11 +37,11 @@ StateEstimator::StateEstimator()
 
   // Use simulation time.
   this->set_parameter(rclcpp::Parameter("use_sim_time", true));
-
+   tf_static_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
   // Timer for keyframe updates.
   KeyframeTimer = this->create_wall_timer(
-      std::chrono::milliseconds(150), std::bind(&StateEstimator::KeyframeTimerCallback, this));
-
+      std::chrono::milliseconds(200), std::bind(&StateEstimator::KeyframeTimerCallback, this));
+  dvl_pub_ = this->create_publisher<smarc_msgs::msg::DVL>("dvl", 10);
   // Initialize the GtsamGraph
   gtsam_graph_ = std::make_unique<GtsamGraph>();
 }
@@ -53,10 +53,9 @@ void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg) {
   Vector3 gyro_raw(msg->angular_velocity.x,
                    msg->angular_velocity.y,
                    msg->angular_velocity.z);
-  // Adjust the gyro measurements as in the original code.
   gyro = Vector3(-gyro_raw.x(), -gyro_raw.y(), -gyro_raw.z()); // Adjusted gyro measurements to right-hand rule.
   double delta_t = 1.0 / 100.0; // or use: current_time - last_time_;
-  // gtsam_graph_.imu_preintegrated_->integrateMeasurement(acc, gyro, delta_t);
+ 
   gtsam_graph_->integrateImuMeasurement(acc, gyro, delta_t);
   last_time_ = current_time;
 }
@@ -69,7 +68,6 @@ void StateEstimator::sbg_callback(const sensor_msgs::msg::Imu::SharedPtr msg){
   Vector3 gyro_raw(msg->angular_velocity.x,
                    msg->angular_velocity.y,
                    msg->angular_velocity.z);
-  // Adjust the gyro measurements as in the original code.
   Vector3 sbg_gyro = Vector3(-gyro_raw.x(), -gyro_raw.y(), -gyro_raw.z());
 
   double delta_t = 1.0 / 100.0; // or use: current_time - last_time_;
@@ -80,9 +78,26 @@ void StateEstimator::sbg_callback(const sensor_msgs::msg::Imu::SharedPtr msg){
 void StateEstimator::dvl_callback(const smarc_msgs::msg::DVL::SharedPtr msg) {
    Vector3 vel_dvl(msg->velocity.x, msg->velocity.y, msg->velocity.z);
 
-  //   Vector3 vel_offset = gyro.cross(r_dvl);
-  //   Vector3 vel_baselink = dvl_to_baselink_rot * vel_dvl - vel_offset;
-
+//   //   Vector3 vel_offset = gyro.cross(r_dvl);
+// //   Vector3 vel_baselink = dvl_to_baselink_rot * vel_dvl - vel_offset;
+//     Vector3 base_link_to_dvl_offset(0.573 ,0.0 ,-0.063); // translation from dvl_link to base_link
+//     Rot3 base_link_dvl_rotation = Rot3::Identity();
+//     // Vector3 dvl_velocity = previous_state_.rotation() * latest_dvl_measurement_;
+//       Rot3 R_world_base_link = previous_state_.rotation();
+//     // velocity of the dvl frame without the angular velocity contribution
+//     RCLCPP_INFO(this->get_logger(), "Previous state velocity: [%f, %f, %f]", previous_state_.velocity().x(), previous_state_.velocity().y(), previous_state_.velocity().z());
+//     Vector3  vel_world_dvl = base_link_dvl_rotation.matrix()*(R_world_base_link.transpose().matrix()*previous_state_.velocity());
+//     // angular velocity contribution
+//     Vector3 angualr_velocity_contribution = base_link_to_dvl_offset.cross(base_link_dvl_rotation*(gyro));
+//     // expected velocity of the dvl frame
+//     Vector3 expected_velocity = vel_world_dvl + angualr_velocity_contribution;
+//     // pub dvl
+//     smarc_msgs::msg::DVL dvl_msg;
+//     dvl_msg.header.stamp = this->get_clock()->now();
+//     dvl_msg.velocity.x = expected_velocity.x();
+//     dvl_msg.velocity.y = expected_velocity.y();
+//     dvl_msg.velocity.z = expected_velocity.z();
+//     dvl_pub_->publish(dvl_msg);  
     latest_dvl_measurement_ = vel_dvl;
     new_dvl_measurement_ = true;
 }
@@ -106,7 +121,8 @@ void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::S
     return;
   }
   
-  latest_depth_measurement_ =  depth - static_offset_;
+  latest_depth_measurement_ =  depth - static_offset_; // depth in the odom frame
+  // RCLCPP_INFO(this->get_logger(), "Depth: %f", latest_depth_measurement_);
   new_barometer_measurement_received_ = true;
 }
 
@@ -114,24 +130,46 @@ void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::S
 void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
   if (!converter_initialized_) {
     try {
-        transformStamped = tf_buffer_.lookupTransform("sam_auv_v1/gps_link_gt","sam_auv_v1/odom_gt",
-                                                        tf2::TimePointZero, std::chrono::seconds(1));
-        gtsam::Point3 gps_to_odom_offset = Point3(transformStamped.transform.translation.x,
-                                  transformStamped.transform.translation.y,
-                                  transformStamped.transform.translation.z);
-      RCLCPP_INFO(this->get_logger(), "GPS to Odom Offset: [%f, %f, %f]",
-                  gps_to_odom_offset.x(), gps_to_odom_offset.y(), gps_to_odom_offset.z());
+    // Convert lat/lon to UTM
+    int utm_zone;
+    bool northp;
+    double utm_x, utm_y;
+    GeographicLib::UTMUPS::Forward(msg->latitude, msg->longitude, utm_zone, northp, utm_x, utm_y);
+    double utm_z = msg->altitude;
+    // Create a static transform from "utm" to "map" using the UTM coordinates.
+    geometry_msgs::msg::TransformStamped map_transform;
+    map_transform.header.stamp = this->get_clock()->now();
+    map_transform.header.frame_id = "utm";     // Parent frame
+    map_transform.child_frame_id = "map";        // New map frame
+    map_transform.transform.translation.x = utm_x;
+    map_transform.transform.translation.y = utm_y;
+    map_transform.transform.translation.z = utm_z;
+    // Use an identity rotation for the map frame.
+    map_transform.transform.rotation.x = 0.0;
+    map_transform.transform.rotation.y = 0.0;
+    map_transform.transform.rotation.z = 0.0;
+    map_transform.transform.rotation.w = 1.0;
 
-      GeographicLib::LocalCartesian temp_cart(msg->latitude, msg->longitude, msg->altitude);
-      double lat_bl, lon_bl, alt_bl;
-      temp_cart.Reverse(gps_to_odom_offset.x(), gps_to_odom_offset.y(), gps_to_odom_offset.z(), lat_bl, lon_bl, alt_bl);
-      local_cartesian_ = std::make_unique<GeographicLib::LocalCartesian>(lat_bl, lon_bl, alt_bl);
-      converter_initialized_ = true;
+    tf_static_broadcaster_->sendTransform(map_transform);
 
-      } catch (tf2::TransformException &ex) {
-        RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
-        return;
-      }
+      transformStamped = tf_buffer_.lookupTransform("sam_auv_v1/gps_link_gt","sam_auv_v1/odom_gt",
+                                                      tf2::TimePointZero, std::chrono::seconds(1));
+      gtsam::Point3 gps_to_odom_offset = Point3(transformStamped.transform.translation.x,
+                                transformStamped.transform.translation.y,
+                                transformStamped.transform.translation.z);
+    RCLCPP_INFO(this->get_logger(), "GPS to Odom Offset: [%f, %f, %f]",
+                gps_to_odom_offset.x(), gps_to_odom_offset.y(), gps_to_odom_offset.z());
+
+    GeographicLib::LocalCartesian temp_cart(msg->latitude, msg->longitude, msg->altitude);
+    double lat_bl, lon_bl, alt_bl;
+    temp_cart.Reverse(gps_to_odom_offset.x(), gps_to_odom_offset.y(), gps_to_odom_offset.z(), lat_bl, lon_bl, alt_bl);
+    local_cartesian_ = std::make_unique<GeographicLib::LocalCartesian>(lat_bl, lon_bl, alt_bl);
+    converter_initialized_ = true;
+
+    } catch (tf2::TransformException &ex) {
+      RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
+      return;
+    }
 
   }
   double x, y, z;
@@ -194,6 +232,7 @@ void StateEstimator::KeyframeTimerCallback() {
 
       // Initialize the GTSAM graph and state.
       gtsam_graph_->initGraphAndState(initial_rotation, initial_position);
+      previous_state_ = gtsam_graph_->getCurrentState();
       is_graph_initialized_ = true;
       return;
     
@@ -208,8 +247,7 @@ void StateEstimator::KeyframeTimerCallback() {
 
   NavState predicted_sbg_state = gtsam_graph_->addSbgFactor(previous_state_, current_sbg_bias_);
 
-  if (new_dvl_measurement_) {
-    // Vector3 dvl_velocity = previous_state_.rotation() * latest_dvl_measurement_;
+  if (new_dvl_measurement_) {  
     gtsam_graph_->addDvlFactor(latest_dvl_measurement_, gyro );
     new_dvl_measurement_ = false;
   }

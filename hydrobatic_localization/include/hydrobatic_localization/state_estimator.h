@@ -17,6 +17,7 @@
 #include <geometry_msgs/msg/point.hpp>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
+#include "tf2_ros/static_transform_broadcaster.h"
 
 // GTSAM and GeographicLib includes
 #include <gtsam/navigation/CombinedImuFactor.h>
@@ -36,7 +37,12 @@
 #include <boost/optional.hpp>
 #include <GeographicLib/LocalCartesian.hpp>
 #include <vector>
+#include <GeographicLib/UTMUPS.hpp>
 
+#include <thread>
+#include <chrono>
+#include <mutex>
+#include <condition_variable>
 // Include the GtsamGraph class
 #include "hydrobatic_localization/gtsam_graph.h"
 
@@ -71,6 +77,7 @@ private:
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
   tf2_ros::TransformBroadcaster tf_broadcast_;
+  std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_static_broadcaster_;
   geometry_msgs::msg::TransformStamped transformStamped;
 
   rclcpp::TimerBase::SharedPtr KeyframeTimer;

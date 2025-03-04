@@ -18,7 +18,6 @@ Vector DvlFactor::evaluateError(const Pose3 &pose, const Vector3 &estimated_velo
     Vector3 error = expected_velocity - dvl_velocity_measurement_;
     // std::cout << "Expected Velocity: " << expected_velocity.transpose() << std::endl;
     // std::cout << "Measured Velocity: " << dvl_velocity_measurement_.transpose() << std::endl;
-    std::cout << "Error:             " << error.transpose() << std::endl;
     // std::cout << "--------------------\n" << std::endl;
 
     //Jacobian with respect to pose
