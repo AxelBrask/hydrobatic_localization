@@ -46,15 +46,11 @@ public:
   // Add an IMU factor (from the preintegrator) and insert a predicted state.
   // Returns the predicted state.
 
-NavState addImuFactor(
-                        const NavState& previous_state,
-                        const imuBias::ConstantBias& current_bias);
+NavState addImuFactor();
 
   // Add an SBG factor (from the preintegrator) and insert a predicted state.
   // Returns the predicted state.
-NavState addSbgFactor(
-                        const NavState& previous_state,
-                        const imuBias::ConstantBias& current_bias);
+NavState addSbgFactor();
 
   // Add additional factors when new measurements are available.
   void addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro);

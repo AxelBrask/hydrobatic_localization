@@ -1,0 +1,12 @@
+<launch>
+
+    <arg name ="robot_name" default ="sam_auv_v1"/>
+    <arg name = "bag_file" default = "/home/axel/colcon_ws/sim_bag_v2/sim_bag_v2_0.db3"/>
+
+    <node pkg="hydrobatic_localization" exec="state_estimator" output="screen" namespace = "$(var robot_name)">
+        <param name = "use_sim_time" value = "true"/>
+    </node>
+
+  <executable cmd="ros2 bag play $(var bag_file)" output="screen" />
+
+</launch>

@@ -51,6 +51,7 @@ using namespace gtsam;
 class StateEstimator : public rclcpp::Node {
 public:
   StateEstimator();
+  // ~StateEstimator();
 
 private:
   // ROS callbacks
@@ -59,6 +60,7 @@ private:
   void dvl_callback(const smarc_msgs::msg::DVL::SharedPtr msg);
   void barometer_callback(const sensor_msgs::msg::FluidPressure::SharedPtr msg);
   void gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
+  void KeyframeThread();
   void KeyframeTimerCallback();
 
   // ROS publishers and subscribers
@@ -68,9 +70,6 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::FluidPressure>::SharedPtr barometer_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
 
-  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr est_odometry_pub_;
-  rclcpp::Publisher<smarc_msgs::msg::DVL>::SharedPtr dvl_pub_;
-  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr imu_odom_pub;
   rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr pose_pub_;
 
   // TF components
@@ -82,7 +81,9 @@ private:
 
   rclcpp::TimerBase::SharedPtr KeyframeTimer;
 
-
+  // IMU and SBG callback groups
+  rclcpp::CallbackGroup::SharedPtr imu_callback_group_;
+  rclcpp::CallbackGroup::SharedPtr sbg_callback_group_;
 
   // Instance of the GtsamGraph class
   std::unique_ptr<GtsamGraph> gtsam_graph_;
@@ -100,6 +101,7 @@ private:
 
   // For IMU integration
   Vector3 gyro;
+  Vector3 dvl_gyro;
 
   // DVL
   Vector3 latest_dvl_measurement_;
@@ -108,9 +110,8 @@ private:
   // GPS
   Point3 latest_gps_point_;
   bool new_gps_measurement_;
-  bool converter_initialized_;
-  std::unique_ptr<GeographicLib::LocalCartesian> local_cartesian_;
-
+  bool map_initialized_;
+  double first_utm_x, first_utm_y, first_utm_z;
   // Barometer
   double first_barometer_measurement_;
   bool new_barometer_measurement_received_;
@@ -122,6 +123,15 @@ private:
   NavState previous_state_;
   imuBias::ConstantBias current_imu_bias_;
   imuBias::ConstantBias current_sbg_bias_;
+
+  //Keyframe thread
+  std::thread keyframe_thread_;
+  std::mutex keyframe_mutex_;
+  std::condition_variable keyframe_cv_;
+  bool keyframe_ready_;
+  bool shutdown_keyframe_thread_ = false;
+
+
 
 
   // Helper functions

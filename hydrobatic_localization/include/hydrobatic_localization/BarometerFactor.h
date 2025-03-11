@@ -26,7 +26,7 @@ class BarometerFactor : public NoiseModelFactor1<Pose3> {
 
   // Override evaluateError 
   Vector evaluateError(const Pose3 &pose,
-                       gtsam::OptionalMatrixType H ) const override;
+                       gtsam::OptionalMatrixType H = OptionalNone ) const override;
 
 
 };

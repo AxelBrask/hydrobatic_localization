@@ -30,7 +30,7 @@ class DvlFactor : public NoiseModelFactor3<Pose3, Vector3, imuBias::ConstantBias
        base_to_dvl_offset_(base_to_dvl_offset), base_link_dvl_rotations_(base_link_dvl_rotations) {}
 
   Vector evaluateError(const Pose3 &pose, const Vector3 &estimated_velocity, const imuBias::ConstantBias &bias_gyro,
-                    gtsam::OptionalMatrixType H1, gtsam::OptionalMatrixType H2, gtsam::OptionalMatrixType H3) const override;
+                    gtsam::OptionalMatrixType H1 = OptionalNone, gtsam::OptionalMatrixType H2 = OptionalNone, gtsam::OptionalMatrixType H3 = OptionalNone) const override;
 
 
 };

@@ -33,6 +33,7 @@
 #include <boost/optional.hpp>
 #include <gtsam/navigation/GPSFactor.h>
 #include <hydrobatic_localization/BarometerFactor.h>
+#include <hydrobatic_localization/DvlFactor.h>
 // geographic lib
 #include <GeographicLib/LocalCartesian.hpp>
 #include <vector>
@@ -124,10 +125,9 @@ private:
     // dvl
     gtsam::Vector3 latest_dvl_measurement_;
     bool new_dvl_measurement_ = false;
-    gtsam::Vector3 gyro;
-    // gps
-    gtsam::Point3 latest_gps_point_;
     bool new_gps_measurement_ = false;
+    gtsam::Vector3 latest_gps_point_;
+    gtsam::Vector3 gyro;
     bool converter_initialized_ = false;
     std::unique_ptr<GeographicLib::LocalCartesian> local_cartesian_;
     //Barometer
@@ -192,7 +192,7 @@ private:
         
         gtsam::Vector3 vel_baselink = dvl_to_baselink_rot * vel_dvl - vel_offset;
         
-        latest_dvl_measurement_ = vel_baselink;
+        latest_dvl_measurement_ = vel_dvl;
         new_dvl_measurement_ = true;
 
         // RCLCPP_INFO(this->get_logger(), "DVL Velocity in Base Link: [%f, %f, %f]", 
@@ -335,6 +335,10 @@ private:
         graph_.add(imu_factor);
 
         gtsam::NavState predicted_state = imu_preintegrated_->predict(previous_state_, current_bias_);
+        RCLCPP_INFO(this->get_logger(), "Predicted IMU State: [%f, %f, %f]",
+                    predicted_state.pose().translation().x(),
+                    predicted_state.pose().translation().y(),
+                    predicted_state.pose().translation().z());
 
 
         //
@@ -363,15 +367,19 @@ private:
         // gtsam::Vector3 new_dvl_velocity = latest_dvl_measurement_;
         if(new_dvl_measurement_){
             new_dvl_measurement_ = false;
-            auto dvl_noise = noiseModel::Diagonal::Sigmas((gtsam::Vector(3) << 0.01, 0.01, 0.1).finished());
+            // auto dvl_noise = noiseModel::Diagonal::Sigmas((gtsam::Vector(3) << 0.01, 0.01, 0.1).finished());
 
-            gtsam::Vector3 dvl_velocity = previous_state_.rotation()*latest_dvl_measurement_;
-            graph_.add(PriorFactor<Vector3>(V(next_index), dvl_velocity, dvl_noise));
-                    // RCLCPP_INFO(this->get_logger(), "DVL Velocity factor added: [%f, %f, %f]", 
-                    // dvl_velocity.x(),
-                    // dvl_velocity.y(),
-                    // dvl_velocity.z());
-          
+            // gtsam::Vector3 dvl_velocity = previous_state_.rotation()*latest_dvl_measurement_;
+            // graph_.add(PriorFactor<Vector3>(V(next_index), dvl_velocity, dvl_noise));
+            //         // RCLCPP_INFO(this->get_logger(), "DVL Velocity factor added: [%f, %f, %f]", 
+            //         // dvl_velocity.x(),
+            //         // dvl_velocity.y(),
+            //         // dvl_velocity.z());
+            auto dvl_noise = noiseModel::Diagonal::Sigmas((Vector(3) << 0.01, 0.01, 0.1).finished());
+            Vector3 base_link_to_dvl_offset(0.573 ,0.0 ,-0.063); 
+            Rot3 base_link_dvl_rotation = Rot3::Identity();
+            graph_.add(DvlFactor(X(next_index),V(next_index),B(next_index),
+            latest_dvl_measurement_, gyro, base_link_to_dvl_offset, base_link_dvl_rotation, dvl_noise));          
         }
     if(new_gps_measurement_){
         auto gps_noise = noiseModel::Diagonal::Sigmas((gtsam::Vector(3) << 0.5, 0.5, 1).finished());
@@ -381,17 +389,19 @@ private:
 
     }
 
-    if(new_barometer_measurement_received_){
-        auto barometer_noise = noiseModel::Diagonal::Sigmas((gtsam::Vector(1) << 0.001).finished());
-        graph_.add(BarometerFactor(X(next_index), latest_depth_measurement_, barometer_noise));
-        new_barometer_measurement_received_ = false;
+    // if(new_barometer_measurement_received_){
+    //     auto barometer_noise = noiseModel::Diagonal::Sigmas((gtsam::Vector(1) << 0.001).finished());
+    //     graph_.add(BarometerFactor(X(next_index), latest_depth_measurement_, barometer_noise));
+    //     new_barometer_measurement_received_ = false;
 
-        }
+    //     }
         // ISAM2Result result = isam_->update(graph_, initial_estimate_);
         LevenbergMarquardtParams params;
+        // params.setVerbosity("ERROR");
         // params.setVerbosityLM("SUMMARY");
         LevenbergMarquardtOptimizer optimizer(graph_, initial_estimate_, params);
         Values result = optimizer.optimize();
+        // result.print("Final Result: ");
         imuBias::ConstantBias latest_bias = result.at<imuBias::ConstantBias>(B(next_index));
         previous_state_ = NavState(result.at<Pose3>(X(next_index)), result.at<Vector3>(V(next_index)));
 
