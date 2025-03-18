@@ -6,20 +6,13 @@
 // TODO: create uniqe lock for keyframe timer, and set the notification when baromter and gps are received
 // Parse xacro file, for extrinsics
 StateEstimator::StateEstimator()
-  : Node("state_estimator"),
-    tf_buffer_(this->get_clock()),
-    tf_listener_(tf_buffer_),
-    tf_broadcast_(this),
-    number_of_imu_measurements(0),
-    is_graph_initialized_(false),
-    new_dvl_measurement_(false),
-    new_gps_measurement_(false),
-    map_initialized_(false),
-    first_barometer_measurement_(0.0),
-    new_barometer_measurement_received_(false),
-    atmospheric_pressure_(101325.0)
+  : Node("state_estimator"), tf_buffer_(this->get_clock()), tf_listener_(tf_buffer_),
+    tf_broadcast_(this), number_of_imu_measurements(0), is_graph_initialized_(false),
+    new_dvl_measurement_(false), new_gps_measurement_(false), map_initialized_(false),
+    first_barometer_measurement_(0.0), new_barometer_measurement_received_(false), atmospheric_pressure_(101325.0),
+    dt_(0.01)
 {
-  // Subscriptions
+  // Subscriptions for sensors
   stim_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
       sam_msgs::msg::Topics::STIM_IMU_TOPIC, 10,
       std::bind(&StateEstimator::imu_callback, this, std::placeholders::_1));
@@ -40,17 +33,89 @@ StateEstimator::StateEstimator()
       smarc_msgs::msg::Topics::GPS_TOPIC, 10,
       std::bind(&StateEstimator::gps_callback, this, std::placeholders::_1));
 
+  thruster_vector_sub_ = this-> create_subscription<sam_msgs::msg::ThrusterAngles>(
+      sam_msgs::msg::Topics::THRUST_VECTOR_CMD_TOPIC, 10,
+      [this](const sam_msgs::msg::ThrusterAngles::SharedPtr msg) {
+        latest_thruster_vector_ = *msg;
+      }
+  );
+
+  // Subscriptions for control inputs with message filters
+  thruster1_sub_.subscribe(this, sam_msgs::msg::Topics::THRUSTER1_FB_TOPIC);
+  thruster2_sub_.subscribe(this, sam_msgs::msg::Topics::THRUSTER2_FB_TOPIC);
+  lcg_sub_.subscribe(this, sam_msgs::msg::Topics::LCG_FB_TOPIC);
+  vbs_sub_.subscribe(this, sam_msgs::msg::Topics::VBS_FB_TOPIC);
+  // thruster_vector_sub_.subscribe(this, sam_msgs::msg::Topics::THRUST_VECTOR_CMD_TOPIC);
+
+  sync_ = std::make_shared<Sync>(SyncPolicy(10), thruster1_sub_, thruster2_sub_,
+                                 lcg_sub_, vbs_sub_);
+
+  sync_->registerCallback(std::bind(&StateEstimator::control_input_callback, this,
+                          std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3, std::placeholders::_4));
+
+
   // Use simulation time.
   this->set_parameter(rclcpp::Parameter("use_sim_time", true));
-   tf_static_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
+  tf_static_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);  
+
 
   // Timer for keyframe updates. This should be changed to a seperate thread
   KeyframeTimer = this->create_wall_timer(
-      std::chrono::milliseconds(200), std::bind(&StateEstimator::KeyframeTimerCallback, this));
+      std::chrono::milliseconds(400), std::bind(&StateEstimator::KeyframeTimerCallback, this));
 
+  //Initialize the Sam Motion Model
+  sam_motion_model_ = std::make_unique<SamMotionModelWrapper>(dt_);
   // Initialize the GtsamGraph
   gtsam_graph_ = std::make_unique<GtsamGraph>();
 }
+
+
+void StateEstimator::control_input_callback(const smarc_msgs::msg::ThrusterFeedback::ConstSharedPtr thruster1,
+                                            const smarc_msgs::msg::ThrusterFeedback::ConstSharedPtr thruster2,
+                                            const smarc_msgs::msg::PercentStamped::ConstSharedPtr lcg,
+                                            const smarc_msgs::msg::PercentStamped::ConstSharedPtr vbs) {
+
+  if(is_graph_initialized_){
+
+
+    Eigen::VectorXd u(6);
+    u << lcg->value, vbs->value, latest_thruster_vector_.thruster_vertical_radians, latest_thruster_vector_.thruster_horizontal_radians, thruster1->rpm.rpm, thruster2->rpm.rpm;
+  
+    if(new_current_integration_state_){
+      // Convert the Navstate to the corrrect state space vector (eta and nu)
+      current_integration_state_ = sam_motion_model_->stateToVector(gtsam_graph_->getCurrentState(), gyro);
+      RCLCPP_INFO(this->get_logger(), "New integration state set");
+      new_current_integration_state_ = false;
+    }
+  
+    if(!initial_control_input_received_){
+      initial_control_input_received_ = true;
+      sam_motion_model_-> setPrevControl(u);
+      return; 
+    }
+    Eigen::VectorXd x(current_integration_state_.size()+u.size());
+    x.head(current_integration_state_.size()) = current_integration_state_;
+    x.tail(u.size()) = u;
+
+    for(int i = 0; i < 100; i++){
+      x = sam_motion_model_->integrateState(x, u, 0.001); // Inlcudes dynamics and integration
+    }
+    current_integration_state_ = x.head(current_integration_state_.size());
+
+    // Print out the updated state vector
+    Eigen::IOFormat fmt(Eigen::StreamPrecision, Eigen::DontAlignCols, " ", ", ");
+    std::stringstream ss;
+    ss << x.transpose().format(fmt);
+    std::string s2 = ss.str();
+    RCLCPP_INFO(this->get_logger(), "x: %s", s2.c_str());
+
+
+  }
+
+
+}
+
 
 
 void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg) {
@@ -76,6 +141,8 @@ void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg) {
  }
 
 
+
+
 void StateEstimator::sbg_callback(const sensor_msgs::msg::Imu::SharedPtr msg){
 
   Vector3 acc(msg->linear_acceleration.x,
@@ -99,6 +166,7 @@ void StateEstimator::dvl_callback(const smarc_msgs::msg::DVL::SharedPtr msg) {
 }
 
 
+
 void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::SharedPtr msg) {
   double measured_pressure = msg->fluid_pressure;
   double depth = -(measured_pressure - atmospheric_pressure_) / 9806.65; //Down negative
@@ -114,8 +182,6 @@ void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::S
         return;
       }
     first_barometer_measurement_ =  - static_offset_ - depth ;
-    
-
     latest_depth_measurement_ =  depth - static_offset_; // depth in the odom frame
     new_barometer_measurement_received_ = true;
     return;
@@ -124,6 +190,7 @@ void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::S
   latest_depth_measurement_ =  depth - static_offset_; // depth in the odom frame
   new_barometer_measurement_received_ = true;
 }
+
 
 
 void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
@@ -198,7 +265,7 @@ void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr m
       RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
       return;
     }
-
+    // this assumes that map to odom is only a translation, this should be changed to a full transformation with the help of a compass for heading
     double x = utm_x - first_utm_x - map_to_odom_offset.x();
     double y = utm_y - first_utm_y - map_to_odom_offset.y();
     double z = utm_z - first_utm_z - map_to_odom_offset.z();
@@ -210,6 +277,8 @@ void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr m
  
 }
 
+
+
 Rot3 StateEstimator::averageRotations(const std::vector<Rot3>& rotations) {
   Vector3 sumLog = Vector3::Zero();
   for (const auto& rot : rotations) {
@@ -219,8 +288,12 @@ Rot3 StateEstimator::averageRotations(const std::vector<Rot3>& rotations) {
   return Rot3::Expmap(avgLog);
 }
 
+
+
 void StateEstimator::KeyframeThread() {
 }
+
+
 void StateEstimator::KeyframeTimerCallback(){
   // need to have at least 6 imu measurements to initialize the graph with the current orientation
     if(number_of_imu_measurements < 6){
@@ -268,6 +341,7 @@ void StateEstimator::KeyframeTimerCallback(){
         gtsam_graph_->initGraphAndState(average_rotation, initial_position);
         previous_state_ = gtsam_graph_->getCurrentState();
         is_graph_initialized_ = true;
+        new_current_integration_state_ = true;
         return;
       
     }
@@ -299,18 +373,22 @@ void StateEstimator::KeyframeTimerCallback(){
 
     if (new_barometer_measurement_received_) {
       gtsam_graph_->addBarometerFactor(latest_depth_measurement_);
-      RCLCPP_INFO(this->get_logger(), "Barometer Factor Added for Depth: %f", latest_depth_measurement_);
+      // RCLCPP_INFO(this->get_logger(), "Barometer Factor Added for Depth: %f", latest_depth_measurement_);
       new_barometer_measurement_received_ = false;
     }
 
     // Optimize the factor graph.
     gtsam_graph_->optimize();
-
+    new_current_integration_state_ = true;
     // Update the current state and bias.
     current_imu_bias_ = gtsam_graph_->getCurrentImuBias();
     // current_sbg_bias_ = gtsam_graph_->getCurrentSbgBias();
     previous_state_ = gtsam_graph_->getCurrentState();
-
+    //log the current state
+    RCLCPP_INFO(this->get_logger(), "Current State: [%f, %f, %f]",
+                previous_state_.pose().translation().x(),
+                previous_state_.pose().translation().y(),
+                previous_state_.pose().translation().z());
 
     // Broadcast estimated pose.
     geometry_msgs::msg::TransformStamped out_transform;
@@ -336,6 +414,7 @@ void StateEstimator::KeyframeTimerCallback(){
 
 
 int main(int argc, char **argv) {
+  py::scoped_interpreter guard{};
   rclcpp::init(argc, argv);
   auto node = std::make_shared<StateEstimator>();
   rclcpp::spin(node);

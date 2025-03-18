@@ -1,6 +1,6 @@
 #ifndef STATEESTIMATOR_H
 #define STATEESTIMATOR_H
-
+// ROS includes
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <nav_msgs/msg/odometry.hpp>
@@ -8,6 +8,9 @@
 #include <sam_msgs/msg/topics.hpp>
 #include <smarc_msgs/msg/topics.hpp>
 #include <smarc_msgs/msg/dvl.hpp>
+#include <smarc_msgs/msg/thruster_feedback.hpp>
+#include <smarc_msgs/msg/percent_stamped.hpp>
+#include <sam_msgs/msg/thruster_angles.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
@@ -18,6 +21,10 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include "tf2_ros/static_transform_broadcaster.h"
+// Message filters
+#include <message_filters/subscriber.h>
+#include <message_filters/synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
 
 // GTSAM and GeographicLib includes
 #include <gtsam/navigation/CombinedImuFactor.h>
@@ -39,14 +46,19 @@
 #include <vector>
 #include <GeographicLib/UTMUPS.hpp>
 
+
 #include <thread>
 #include <chrono>
 #include <mutex>
 #include <condition_variable>
 // Include the GtsamGraph class
 #include "hydrobatic_localization/gtsam_graph.h"
+#include "hydrobatic_localization/SamMotionModel.h"
 
 using namespace gtsam;
+
+
+
 
 class StateEstimator : public rclcpp::Node {
 public:
@@ -54,14 +66,50 @@ public:
   // ~StateEstimator();
 
 private:
-  // ROS callbacks
+  /**
+   * @brief Callback function for the IMU sensor, sets the gyro field and integrates the measurements
+   * @param msg: the IMU message
+   */
   void imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg);
+
+  /**
+   * @brief Callback function for the SBG sensor, integrates the measurements
+   * @param msg: the SBG message
+   */
   void sbg_callback(const sensor_msgs::msg::Imu::SharedPtr msg);
+
+  /**
+   * @brief Callback function for the DVL sensor, sets the latest DVL measurement
+   * @param msg: the DVL message
+   */
   void dvl_callback(const smarc_msgs::msg::DVL::SharedPtr msg);
+
+  /**
+   * @brief Callback function for the barometer sensor, sets the latest barometer measurement
+   * @param msg: the barometer message
+   */
   void barometer_callback(const sensor_msgs::msg::FluidPressure::SharedPtr msg);
+
+  /**
+   * @brief Callback function for the GPS sensor, sets the latest GPS measurement as the relative measuremnt of the navigation frame (odom)
+   * @param msg: the GPS message
+   */
   void gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
+
   void KeyframeThread();
   void KeyframeTimerCallback();
+  /**
+   * @brief Callback function for the control inputs, sets the latest control input, the thruster vector is give my the thruster vector topic. Then integrates the control input
+   * with the SAM motion model
+   * @param thruster1: the feedback from thruster 1
+   * @param thruster2: the feedback from thruster 2
+   * @param lcg: the feedback from the LCG
+   * @param vbs: the feedback from the VBS
+   */
+  void control_input_callback(const smarc_msgs::msg::ThrusterFeedback::ConstSharedPtr thruster1,
+                              const smarc_msgs::msg::ThrusterFeedback::ConstSharedPtr thruster2,
+                              const smarc_msgs::msg::PercentStamped::ConstSharedPtr lcg,
+                              const smarc_msgs::msg::PercentStamped::ConstSharedPtr vbs);
 
   // ROS publishers and subscribers
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr stim_imu_sub_;
@@ -69,8 +117,22 @@ private:
   rclcpp::Subscription<smarc_msgs::msg::DVL>::SharedPtr dvl_sub_;
   rclcpp::Subscription<sensor_msgs::msg::FluidPressure>::SharedPtr barometer_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
-
+  rclcpp::Subscription<sam_msgs::msg::ThrusterAngles>::SharedPtr thruster_vector_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr pose_pub_;
+
+
+  // ROS Control subscribers with message filters, feedback topics come at 10 Hz
+  typedef message_filters::sync_policies::ApproximateTime<smarc_msgs::msg::ThrusterFeedback, smarc_msgs::msg::ThrusterFeedback,
+   smarc_msgs::msg::PercentStamped, smarc_msgs::msg::PercentStamped> SyncPolicy;
+
+  typedef message_filters::Synchronizer<SyncPolicy> Sync;
+  std::shared_ptr<Sync> sync_;
+
+  message_filters::Subscriber<smarc_msgs::msg::ThrusterFeedback> thruster1_sub_;
+  message_filters::Subscriber<smarc_msgs::msg::ThrusterFeedback> thruster2_sub_;
+  message_filters::Subscriber<smarc_msgs::msg::PercentStamped> lcg_sub_;
+  message_filters::Subscriber<smarc_msgs::msg::PercentStamped> vbs_sub_;
+
 
   // TF components
   tf2_ros::Buffer tf_buffer_;
@@ -131,7 +193,13 @@ private:
   bool keyframe_ready_;
   bool shutdown_keyframe_thread_ = false;
 
-
+  //Motion model for SAM
+  std::unique_ptr<SamMotionModelWrapper> sam_motion_model_;
+  double dt_;
+  bool initial_control_input_received_;
+  sam_msgs::msg::ThrusterAngles latest_thruster_vector_;
+  Eigen::VectorXd current_integration_state_; 
+  bool new_current_integration_state_;
 
 
   // Helper functions

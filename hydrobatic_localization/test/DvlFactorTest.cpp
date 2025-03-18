@@ -75,7 +75,7 @@ imuBias::ConstantBias bias_gyro = imuBias::ConstantBias(Vector3(0.0, 0.0, 0.0), 
   Values values;
   values.insert(X(1), pose);
   values.insert(V(1), expected_velocity);
-values.insert(B(1), bias_gyro);
+  values.insert(B(1), bias_gyro);
   
   EXPECT_CORRECT_FACTOR_JACOBIANS(factor, values, 1e-5, 1e-5);
 }

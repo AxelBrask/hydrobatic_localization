@@ -40,39 +40,91 @@ class GtsamGraph {
 public:
   GtsamGraph();
 
-  // Initialize the factor graph with prior factors.
+  /**
+   * @brief Initialize the factor graph and the state with prior factors
+   * @param initial_rot: the initial rotation of the vehicle
+   * @param initial_position: the initial position of the vehicle in the odom frame
+   */
   void initGraphAndState(const Rot3& initial_rot, const Point3& initial_position);
 
-  // Add an IMU factor (from the preintegrator) and insert a predicted state.
-  // Returns the predicted state.
 
-NavState addImuFactor();
+  /**
+   * @brief Add an IMU factor (from the preintegrator) and insert a predicted state.
+   * @return the predicted state as a NavState
+   */
+  NavState addImuFactor();
 
-  // Add an SBG factor (from the preintegrator) and insert a predicted state.
-  // Returns the predicted state.
-NavState addSbgFactor();
+  /**
+   * @brief Add an SBG factor (from the preintegrator) and insert a predicted state.
+   * @return the predicted state as a NavState
+   */
+  NavState addSbgFactor();
 
-  // Add additional factors when new measurements are available.
+  /**
+   * @brief Add a DVL factor to the factor graph
+   * @param dvl_velocity: the velocity measurement from the DVL
+   * @param gyro: the angular velocity measurement from the IMU
+   */
   void addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro);
+
+  /**
+   * @brief Add a GPS factor to the factor graph
+   * @param gps_point: the relative GPS measurment to the navigation frame
+   */
   void addGpsFactor(const Point3& gps_point);
+
+  /**
+   * @brief Add a barometer factor to the factor graph
+   * @param depth_measurement: the depth measurement from the barometer in meters, negative dowmwards
+   */
   void addBarometerFactor(double depth_measurement);
 
-  // Optimize the factor graph to update the state.
+  /**
+   * @brief Optimize the factor graph, increments the index and updates the state and bias of both the IMU and SBG.
+   */
   void optimize();
 
-  // Get the updated state and bias.
+  /**
+   * @brief Get the current state of the vehicle
+   * @return the current state as a NavState
+   */
   NavState getCurrentState() const;
+
+  /**
+   * @brief Get the current IMU bias
+   * @return the current IMU bias as a ConstantBias
+   */
   imuBias::ConstantBias getCurrentImuBias() const;
+
+  /**
+   * @brief Get the current SBG bias
+   * @return the current SBG bias as a ConstantBias
+   */
   imuBias::ConstantBias getCurrentSbgBias() const;
 
-  // Get the current keyframe index.
+  /**
+   * @brief Get the current index of the factor graph
+   * @return the current index as an integer
+   */
   int getCurrentIndex() const;
 
   std::shared_ptr<PreintegratedCombinedMeasurements::Params> getImuParams();
   std::shared_ptr<PreintegratedCombinedMeasurements::Params> getSbgParams();
 
-  // Imu and Sbg integrators
+  /**
+   * @brief Integrate the IMU measurements to the preintegrator
+   * @param acc: the acceleration measurement
+   * @param gyro: the angular velocity measurement
+   * @param dt: the time step
+   */
   void integrateImuMeasurement(const Vector3& acc, const Vector3& gyro, const double dt);
+
+  /**
+   * @brief Integrate the SBG measurements to the preintegrator
+   * @param acc: the acceleration measurement
+   * @param gyro: the angular velocity measurement
+   * @param dt: the time step
+   */
   void integrateSbgMeasurement(const Vector3& acc, const Vector3& gyro, const double dt);
 
 private:

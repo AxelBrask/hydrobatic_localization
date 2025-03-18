@@ -7,7 +7,7 @@ Vector DvlFactor::evaluateError(const Pose3 &pose, const Vector3 &estimated_velo
 
 
     Vector3 baslinkVel = base_link_dvl_rotations_.matrix().transpose()*pose.rotation().matrix().transpose()*estimated_velocity;
-    Vector3 angualr_velocity_contribution = (base_link_gyro_measurement_ - bias_gyro.gyroscope()).cross(base_to_dvl_offset_);
+    Vector3 angualr_velocity_contribution = base_link_dvl_rotations_*(base_link_gyro_measurement_ - bias_gyro.gyroscope()).cross(base_to_dvl_offset_);
     Vector3 expected_velocity = baslinkVel + angualr_velocity_contribution;
 
     //Rotation matrix from world to base_link

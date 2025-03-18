@@ -11,6 +11,7 @@ find_package(ament_cmake REQUIRED)
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclpy REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -22,7 +23,8 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(GeographicLib REQUIRED)
-
+find_package(pybind11 REQUIRED)
+find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 find_library(CPPUNITLITE_LIBRARY NAMES CppUnitLite PATHS /usr/local/lib)
 
 # GTSAM stuff
@@ -36,6 +38,11 @@ include_directories(${PROJECT_SOURCE_DIR}/include/)
 include_directories(${PROJECT_SOURCE_DIR}/launch/)
 #include GeographicLib
 include_directories(${GeographicLib_INCLUDE_DIRS})
+include_directories(${Python3_INCLUDE_DIRS})
+# set python interpreter path 
+list(APPEND PYTHONPATH "${CMAKE_INSTALL_PREFIX}/lib/hydrobatic_localization/SAM_casadi.py")
+
+
 
 add_executable(hydrobatic_localization src/main.cpp src/BarometerFactor.cpp src/DvlFactor.cpp)
 ament_target_dependencies(hydrobatic_localization rclcpp sensor_msgs
@@ -60,6 +67,8 @@ target_link_libraries(state_estimator
   Eigen3::Eigen
   GeographicLib::GeographicLib
   )
+
+# Insatll the executablese, headers and launch files
 install(TARGETS
   hydrobatic_localization
   state_estimator
@@ -72,6 +81,15 @@ install(DIRECTORY include/
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}/
 )
+
+install(PROGRAMS
+  scripts/tf_plotter.py
+  DESTINATION lib/${PROJECT_NAME})
+
+install(FILES ${PROJECT_SOURCE_DIR}/smarc_modelling/src/smarc_modelling/vehicles/SAM_casadi.py
+DESTINATION lib/${PROJECT_NAME})
+
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
 

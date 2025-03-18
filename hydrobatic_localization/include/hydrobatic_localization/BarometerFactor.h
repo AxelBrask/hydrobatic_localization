@@ -20,11 +20,21 @@ class BarometerFactor : public NoiseModelFactor1<Pose3> {
   using Base = NoiseModelFactor1<Pose3>;
   BarometerFactor(){};
   virtual ~BarometerFactor() {}  
-  // Constructor.
-  BarometerFactor(Key poseKey, double measuredDepth, const Vector3 base_to_pressure_offset, const SharedNoiseModel& model)
-      : Base(model, poseKey), measuredDepth_(measuredDepth), base_to_pressure_offset_(base_to_pressure_offset) {}
+  /**
+   * @brief Constructor of the BarometerFactor class
+   * @param poseKey: the key of the pose
+   * @param measuredDepth: the measured depth in meters from the barometer
+   * @param baseToPressureOffset: the translation offset between base link and the pressure sensor
+   * @param model: the noice model
+   */
+  BarometerFactor(Key poseKey, double measuredDepth, const Vector3 baseToPressureOffset, const SharedNoiseModel& model)
+      : Base(model, poseKey), measuredDepth_(measuredDepth), base_to_pressure_offset_(baseToPressureOffset) {}
 
-  // Override evaluateError 
+    /**
+     * @brief the residual function
+     * @param pose: the current estimated pose, correspond to the poseKey
+     * @return the residual error.
+     */
   Vector evaluateError(const Pose3 &pose,
                        gtsam::OptionalMatrixType H = OptionalNone ) const override;
 

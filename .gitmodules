@@ -1,0 +1,3 @@
+[submodule "smarc_modelling"]
+	path = hydrobatic_localization/smarc_modelling
+	url = git@github.com:CSimonSp/smarc_modelling.git
