@@ -82,9 +82,6 @@ install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}/
 )
 
-install(PROGRAMS
-  scripts/tf_plotter.py
-  DESTINATION lib/${PROJECT_NAME})
 
 install(FILES ${PROJECT_SOURCE_DIR}/smarc_modelling/src/smarc_modelling/vehicles/SAM_casadi.py
 DESTINATION lib/${PROJECT_NAME})

@@ -12,6 +12,9 @@ StateEstimator::StateEstimator()
     first_barometer_measurement_(0.0), new_barometer_measurement_received_(false), atmospheric_pressure_(101325.0),
     dt_(0.01)
 {
+
+  this->declare_parameter<bool>("use_motion_model", true);
+  this->get_parameter("use_motion_model", using_motion_model_);
   // Subscriptions for sensors
   stim_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
       sam_msgs::msg::Topics::STIM_IMU_TOPIC, 10,
@@ -32,13 +35,11 @@ StateEstimator::StateEstimator()
   gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
       smarc_msgs::msg::Topics::GPS_TOPIC, 10,
       std::bind(&StateEstimator::gps_callback, this, std::placeholders::_1));
-
+  if(using_motion_model_){
+    // Subscription for contorl input.
   thruster_vector_sub_ = this-> create_subscription<sam_msgs::msg::ThrusterAngles>(
       sam_msgs::msg::Topics::THRUST_VECTOR_CMD_TOPIC, 10,
-      [this](const sam_msgs::msg::ThrusterAngles::SharedPtr msg) {
-        latest_thruster_vector_ = *msg;
-      }
-  );
+       std::bind(&StateEstimator::ThrusterVectorCallback, this, std::placeholders::_1));
 
   // Subscriptions for control inputs with message filters
   thruster1_sub_.subscribe(this, sam_msgs::msg::Topics::THRUSTER1_FB_TOPIC);
@@ -53,23 +54,40 @@ StateEstimator::StateEstimator()
   sync_->registerCallback(std::bind(&StateEstimator::control_input_callback, this,
                           std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3, std::placeholders::_4));
-
+  }
 
   // Use simulation time.
   this->set_parameter(rclcpp::Parameter("use_sim_time", true));
   tf_static_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);  
 
-
+  // Publishers
+  motion_model_odom_ = this->create_publisher<nav_msgs::msg::Odometry>(
+      "motion_model_odom", 10);
+  pose_pub_ = this->create_publisher<nav_msgs::msg::Odometry>(
+      "estimated_pose", 10);
   // Timer for keyframe updates. This should be changed to a seperate thread
   KeyframeTimer = this->create_wall_timer(
-      std::chrono::milliseconds(400), std::bind(&StateEstimator::KeyframeTimerCallback, this));
+      std::chrono::milliseconds(300), std::bind(&StateEstimator::KeyframeTimerCallback, this));
 
   //Initialize the Sam Motion Model
   sam_motion_model_ = std::make_unique<SamMotionModelWrapper>(dt_);
   // Initialize the GtsamGraph
   gtsam_graph_ = std::make_unique<GtsamGraph>();
+  //get the start time
+
 }
 
+void StateEstimator::ThrusterVectorCallback(const sam_msgs::msg::ThrusterAngles::SharedPtr msg){
+  auto t1 = std::chrono::high_resolution_clock::now();
+  Eigen::VectorXd u(2);
+  u << msg->thruster_vertical_radians, msg->thruster_horizontal_radians;
+  rclcpp::Time time(msg->header.stamp);
+  double timestamp = time.seconds();
+  sam_motion_model_ -> controlToQueue(u,timestamp,true,this->get_logger());
+  auto t2 = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
+  RCLCPP_INFO(this->get_logger(), "Time taken adding to queue: %f", duration/1000000.0);
+}
 
 void StateEstimator::control_input_callback(const smarc_msgs::msg::ThrusterFeedback::ConstSharedPtr thruster1,
                                             const smarc_msgs::msg::ThrusterFeedback::ConstSharedPtr thruster2,
@@ -78,37 +96,41 @@ void StateEstimator::control_input_callback(const smarc_msgs::msg::ThrusterFeedb
 
   if(is_graph_initialized_){
 
+    auto t1 = std::chrono::high_resolution_clock::now();
+    // Eigen::VectorXd u(6);
+    // u << lcg->value, vbs->value, latest_thruster_vector_.thruster_vertical_radians, latest_thruster_vector_.thruster_horizontal_radians, thruster1->rpm.rpm, thruster2->rpm.rpm;
+    Eigen::VectorXd u_test(4);
+    u_test <<lcg->value, vbs->value, thruster1->rpm.rpm, thruster2->rpm.rpm;
+    rclcpp::Time time(lcg->header.stamp);
+    double timestamp = time.seconds();
 
-    Eigen::VectorXd u(6);
-    u << lcg->value, vbs->value, latest_thruster_vector_.thruster_vertical_radians, latest_thruster_vector_.thruster_horizontal_radians, thruster1->rpm.rpm, thruster2->rpm.rpm;
+    sam_motion_model_ -> controlToQueue(u_test,timestamp,false,this->get_logger());
+    auto t2 = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
+    RCLCPP_INFO(this->get_logger(), "Time taken adding to queue: %f", duration/1000000.0);
+    // if(!new_current_integration_state_){
+    //   // Convert the Navstate to the corrrect state space vector (eta and nu)
+    //   current_integration_state_ = sam_motion_model_->stateToVector(gtsam_graph_->getCurrentState(), gyro);
+    //   // RCLCPP_INFO(this->get_logger(), "New integration state set");
+    //   new_current_integration_state_ = true;
+    // }
   
-    if(new_current_integration_state_){
-      // Convert the Navstate to the corrrect state space vector (eta and nu)
-      current_integration_state_ = sam_motion_model_->stateToVector(gtsam_graph_->getCurrentState(), gyro);
-      RCLCPP_INFO(this->get_logger(), "New integration state set");
-      new_current_integration_state_ = false;
-    }
-  
-    if(!initial_control_input_received_){
-      initial_control_input_received_ = true;
-      sam_motion_model_-> setPrevControl(u);
-      return; 
-    }
-    Eigen::VectorXd x(current_integration_state_.size()+u.size());
-    x.head(current_integration_state_.size()) = current_integration_state_;
-    x.tail(u.size()) = u;
+    // if(!initial_control_input_received_){
+    //   initial_control_input_received_ = true;
+    //   sam_motion_model_-> setPrevControl(u);
+    //   return; 
+    // }
+    // Eigen::VectorXd x(current_integration_state_.size()+u.size());
+    // x.head(current_integration_state_.size()) = current_integration_state_;
+    // x.tail(u.size()) = u;
+    // //print x
 
-    for(int i = 0; i < 100; i++){
-      x = sam_motion_model_->integrateState(x, u, 0.001); // Inlcudes dynamics and integration
-    }
-    current_integration_state_ = x.head(current_integration_state_.size());
+    // for(int i = 0; i < 10; i++){
+    //   x = sam_motion_model_->integrateState(x, u, 0.01); // Inlcudes dynamics and integration
+    // }
+    // current_integration_state_ = x.head(current_integration_state_.size());
 
-    // Print out the updated state vector
-    Eigen::IOFormat fmt(Eigen::StreamPrecision, Eigen::DontAlignCols, " ", ", ");
-    std::stringstream ss;
-    ss << x.transpose().format(fmt);
-    std::string s2 = ss.str();
-    RCLCPP_INFO(this->get_logger(), "x: %s", s2.c_str());
+
 
 
   }
@@ -136,7 +158,6 @@ void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg) {
 
   double delta_t = 1.0 / 100.0;
   gtsam_graph_->integrateImuMeasurement(acc, gyro, delta_t);
-  last_time_ = current_time;
   
  }
 
@@ -275,7 +296,7 @@ void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr m
     RCLCPP_DEBUG(this->get_logger(), "GPS Point: [%f, %f, %f]", latest_gps_point_.x(), latest_gps_point_.y(), latest_gps_point_.z());
   }
  
-}
+}  
 
 
 
@@ -341,12 +362,52 @@ void StateEstimator::KeyframeTimerCallback(){
         gtsam_graph_->initGraphAndState(average_rotation, initial_position);
         previous_state_ = gtsam_graph_->getCurrentState();
         is_graph_initialized_ = true;
-        new_current_integration_state_ = true;
+        current_time = this->get_clock()->now().seconds();
+        last_time_ = current_time;
+        // new_current_integration_state_ = true;
         return;
       
     }
-
-
+    if(using_motion_model_){
+      auto t1 = std::chrono::high_resolution_clock::now();
+      double current_time = this->get_clock()->now().seconds();
+      Eigen::VectorXd prev_state(19);
+      Eigen::VectorXd prev_pose_vel = sam_motion_model_->stateToVector(previous_state_, gyro);
+      prev_state.head(13) = prev_pose_vel;
+      prev_state.tail(6) = sam_motion_model_->getPrevControl();
+      RCLCPP_INFO(this->get_logger(), "Previous State: [%f, %f, %f]",
+                  prev_state(0),
+                  prev_state(1),
+                  prev_state(2));
+      RCLCPP_INFO(this->get_logger(), "Previous Velocity: [%f, %f, %f]",
+                  prev_state(7),
+                  prev_state(8),
+                  prev_state(9));
+      RCLCPP_INFO(this->get_logger(), "last time and current time %f %f",last_time_,current_time);
+      Eigen::VectorXd new_state = sam_motion_model_->preIntegrateState(prev_state, last_time_, current_time, this->get_logger());
+      last_time_ = current_time;
+      auto t2 = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
+      RCLCPP_INFO(this->get_logger(), "Time taken for integration: %f", duration/1000000.0);
+       nav_msgs::msg::Odometry motion_model_odom;
+    motion_model_odom.header.stamp = this->get_clock()->now();
+    motion_model_odom.header.frame_id = "odom";
+    motion_model_odom.child_frame_id = "base_link";
+    motion_model_odom.pose.pose.position.x = new_state(0);
+    motion_model_odom.pose.pose.position.y = new_state(1);
+    motion_model_odom.pose.pose.position.z = new_state(2);
+    motion_model_odom.pose.pose.orientation.x = new_state(3);
+    motion_model_odom.pose.pose.orientation.y = new_state(4);
+    motion_model_odom.pose.pose.orientation.z = new_state(5);
+    motion_model_odom.pose.pose.orientation.w = new_state(6);
+    motion_model_odom.twist.twist.linear.x = new_state(7);
+    motion_model_odom.twist.twist.linear.y = new_state(8);
+    motion_model_odom.twist.twist.linear.z = new_state(9);
+    motion_model_odom.twist.twist.angular.x = new_state(10);
+    motion_model_odom.twist.twist.angular.y = new_state(11);
+    motion_model_odom.twist.twist.angular.z = new_state(12);
+    motion_model_odom_->publish(motion_model_odom);
+    }
     // Predict the next state using the preintegrated measurements AND add the imu factor to the graph.
     NavState predictes_imu_state = gtsam_graph_->addImuFactor();
     // RCLCPP_INFO(this->get_logger(), "Predicted IMU State: [%f, %f, %f]",
@@ -359,7 +420,8 @@ void StateEstimator::KeyframeTimerCallback(){
     //             predicted_sbg_state.pose().translation().x(),
     //             predicted_sbg_state.pose().translation().y(),
     //             predicted_sbg_state.pose().translation().z());
-
+    // Publish the motion model odometry
+   
     // Add the DVL, GPS and Barometer factors to the graph.
     if (new_dvl_measurement_) {  
       gtsam_graph_->addDvlFactor(latest_dvl_measurement_, dvl_gyro );
@@ -379,7 +441,7 @@ void StateEstimator::KeyframeTimerCallback(){
 
     // Optimize the factor graph.
     gtsam_graph_->optimize();
-    new_current_integration_state_ = true;
+    // new_current_integration_state_ = true;
     // Update the current state and bias.
     current_imu_bias_ = gtsam_graph_->getCurrentImuBias();
     // current_sbg_bias_ = gtsam_graph_->getCurrentSbgBias();
@@ -389,7 +451,31 @@ void StateEstimator::KeyframeTimerCallback(){
                 previous_state_.pose().translation().x(),
                 previous_state_.pose().translation().y(),
                 previous_state_.pose().translation().z());
+    // Vector3 current_velocity = previous_state_.velocity();
+    // // RCLCPP_INFO(this->get_logger(), "Current Velocity in the baselink: [%f, %f, %f]",
+    // //             current_velocity.x(),
+    // //             current_velocity.y(),
+    // //             current_velocity.z());
+    // Vector3 current_velocity_base_link = previous_state_.pose().rotation().transpose().matrix()*current_velocity;
+    // RCLCPP_INFO(this->get_logger(), "Current Velocity in the baselink: [%f, %f, %f]",
+    //             current_velocity_base_link.x(),
+    //             current_velocity_base_link.y(),
+    //             current_velocity_base_link.z());
 
+    // Publish the estimated pose.
+    nav_msgs::msg::Odometry estimated_pose;
+    estimated_pose.header.stamp = this->get_clock()->now();
+    estimated_pose.header.frame_id = "odom";
+    estimated_pose.child_frame_id = "base_link";
+    estimated_pose.pose.pose.position.x = previous_state_.pose().translation().x();
+    estimated_pose.pose.pose.position.y = previous_state_.pose().translation().y();
+    estimated_pose.pose.pose.position.z = previous_state_.pose().translation().z();
+    Quaternion quat = previous_state_.pose().rotation().toQuaternion();
+    estimated_pose.pose.pose.orientation.x = quat.x();
+    estimated_pose.pose.pose.orientation.y = quat.y();
+    estimated_pose.pose.pose.orientation.z = quat.z();
+    estimated_pose.pose.pose.orientation.w = quat.w();
+    pose_pub_->publish(estimated_pose);
     // Broadcast estimated pose.
     geometry_msgs::msg::TransformStamped out_transform;
     out_transform.header.stamp = this->get_clock()->now();

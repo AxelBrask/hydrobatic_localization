@@ -46,7 +46,6 @@
 #include <vector>
 #include <GeographicLib/UTMUPS.hpp>
 
-
 #include <thread>
 #include <chrono>
 #include <mutex>
@@ -96,6 +95,12 @@ private:
    */
   void gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
 
+  /**
+   * @brief Callback for adding thruster vector command to the control sequence queue.
+   * @param msg: thruster vector command message
+   */
+  void ThrusterVectorCallback(const sam_msgs::msg::ThrusterAngles::SharedPtr msg);
+
   void KeyframeThread();
   void KeyframeTimerCallback();
   /**
@@ -118,7 +123,8 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::FluidPressure>::SharedPtr barometer_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
   rclcpp::Subscription<sam_msgs::msg::ThrusterAngles>::SharedPtr thruster_vector_sub_;
-  rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr pose_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pose_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr motion_model_odom_;
 
 
   // ROS Control subscribers with message filters, feedback topics come at 10 Hz
@@ -200,6 +206,8 @@ private:
   sam_msgs::msg::ThrusterAngles latest_thruster_vector_;
   Eigen::VectorXd current_integration_state_; 
   bool new_current_integration_state_;
+  std::mutex control_queue_mutex_;
+  bool using_motion_model_;
 
 
   // Helper functions
