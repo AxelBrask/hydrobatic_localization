@@ -12,6 +12,7 @@
 #include <gtsam/navigation/NavState.h>
 #include <deque>
 #include <chrono>
+#include <rclcpp/rclcpp.hpp>
 namespace py = pybind11;
 
 /**
@@ -86,7 +87,6 @@ public:
                         // Use the smaller of dt_ or the remaining time for the current step.
                         double dt_step = std::min(dt_, remaining_time);
                         Eigen::VectorXd x_dot = Dynamics(new_state, control);
-                        assert(x_dot.size() == 19);
                         new_state = new_state + dt_step * x_dot;
                         // Normalize the quaternion 
                         Eigen::Vector4d q = new_state.segment(3, 4);
@@ -105,14 +105,33 @@ public:
          */
         Eigen::VectorXd stateToVector(const gtsam::NavState& state, const gtsam::Vector3 gyro) {
 
-                // Translation and rotation
+                // Translation and rotation this needs to be converted from ENU to NED
+                Eigen::Matrix3d R_e2n;       
+                R_e2n << 0, 1, 0,
+                        1, 0, 0,
+                        0, 0, -1;
+                
+                // Convert the translation: from ENU to Ned
+                Eigen::VectorXd t_enu = state.pose().translation();
+                Eigen::VectorXd t_ned;
+                t_ned << t_enu.y(), t_enu.x(), -t_enu.z();
+                
+                // Get the ENU rotation matrix from the nav state
+                Eigen::Matrix3d R_enu = state.pose().rotation().matrix();
+                // Convert it to NED by applying the transformation on both sides
+                Eigen::Matrix3d R_ned = R_e2n * R_enu * R_e2n.transpose();
+                // Convert the rotation matrix to a quaternion (in NED)
+                Eigen::Quaterniond q_ned(R_ned);
+                
+                // Fill the state vector: first three elements are translation, 
+                // next four are the quaternion (w, x, y, z)
                 Eigen::VectorXd eta(7);
-                Quaternion quat = state.pose().rotation().toQuaternion();
-                eta << state.pose().translation().x(), state.pose().translation().y(), state.pose().translation().z(), quat.x(), quat.y(), quat.z(), quat.w();
+                eta << t_ned(0), t_ned(1), t_ned(2),
+                q_ned.w(), q_ned.x(), q_ned.y(), q_ned.z();
                 // Linear and angular velocity
                 Eigen::VectorXd nu(6);
                 //Velcoity in the base link frame
-                Vector3 base_link_velocity = state.pose().rotation().transpose().matrix()*state.velocity();
+                Eigen::VectorXd base_link_velocity = state.pose().rotation().transpose().matrix()*state.velocity();
                 nu << base_link_velocity.x(), base_link_velocity.y(), base_link_velocity.z(), gyro.x(), gyro.y(), gyro.z();
                 Eigen::VectorXd state_vector(eta.size() + nu.size());
                 state_vector << eta, nu;
@@ -143,12 +162,15 @@ public:
                         control_queue_.push_back(new_control);
                         return;
                 }
+                //Get the latest control in the queue
                 controlSequence latest_control = control_queue_.back();
 
+                // Update the control input, if the latest control is a thruster vector, update only element 2 and 3
                 if(isThrusterVector){
                         latest_control.u.segment<2>(2) = u;
 
                 }
+                // If the latest control is a feedback control, update the first 2 elements and the last 2 elements
                 else{
                         latest_control.u.segment<2>(0) = u.segment<2>(0);
                         latest_control.u.segment<2>(4) = u.segment<2>(2);
@@ -168,17 +190,18 @@ public:
          * @param end_time: the end time of the integration
          * @return Eigen::VectorXd: the pre integrated state
          */
-        Eigen::VectorXd preIntegrateState(const Eigen::VectorXd& x, const double start_time, const double end_time,rclcpp::Logger logger) {
-                auto start = std::chrono::high_resolution_clock::now();
+        Eigen::VectorXd preIntegrateState(const Eigen::VectorXd& x, const double start_time, const double end_time, rclcpp::Logger logger) {
                 if(control_queue_.empty()) {
                         return x;
                 }
                 Eigen::VectorXd integratedState = x;
                 double currentTime = start_time;
+                // Integrate the state until the first control input, by using the previous control input if the timestamp does not mathc the start time
                 if(control_queue_[1].timestamp > currentTime) {
                         double dt = control_queue_[1].timestamp - currentTime;
                         // RCLCPP_INFO(logger,"dt in initial gap %f",dt);
                         // RCLCPP_INFO(logger,"timestamp  and current time %f %f",control_queue_.front().timestamp,currentTime);
+                        // control_queue_.front().u will be the previous control input since we never pop the queue when integrating from the last control to end_time
                         integratedState = integrateState(integratedState, control_queue_.front().u,dt);
                         // std::stringstream ss;
                         // ss << "Control used: " << control_queue_.front().u.transpose() << ", timestamp: " << control_queue_.front().timestamp;
@@ -200,7 +223,7 @@ public:
                         control_queue_.pop_front();
 
                 }
-                // Now we have to integrate the last dynamics from the last control input to the integration time
+                // Now we have to integrate the last dynamics from the last control input to the integration time by using the last control input
                 double dt = end_time - currentTime;
                 RCLCPP_INFO(logger,"dt in final gap %f",dt);
                 if(dt > 0) {
@@ -221,7 +244,7 @@ public:
   
 
 private:
-        // struch for the control queue for Sam Motion model
+        // struct for the control queue for Sam Motion model
         struct controlSequence {
                 double timestamp;
                 Eigen::VectorXd u;
