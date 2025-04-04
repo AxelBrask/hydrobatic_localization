@@ -2,49 +2,66 @@
 
 namespace gtsam {
 
-Eigen::VectorXd PreintegratedMotionModel::predict(const Eigen::VectorXd& state, const double start_time, const double end_time) {
-  if (control_list_.empty()) {  // control_list_ is a std::vector instead of a deque
-            return state;
+NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& gyro,  const double start_time, const double end_time) const {
+  
+      // Convert the input NavState to a state vector using the provided gyro measurement.
+      Eigen::VectorXd vectorState(19);
+      vectorState.head(13) = stateToVector(state, gyro);  // Set the first 13 elements to the state vector      
+      vectorState.tail(6) = prev_control_.u;  
+      
+      // If there are no control inputs, return the input state.
+      if (control_list_.empty()) {  
+          return state;
       }
-      Eigen::VectorXd integratedState = state;
+
+      // std::cout << "start time: " << start_time << ", end time: " << end_time << std::endl;
+      Eigen::VectorXd integratedState = vectorState;
+      // std::cout << " Size of integrated state: " << integratedState.size() << std::endl;
       double currentTime = start_time;
       size_t idx = 0;  // Index to track current control
 
-      // Skip controls that occurred before the start_time, if necessary
+      // Skip controls that occurred before the start_time.
       while (idx < control_list_.size() && control_list_[idx].timestamp < currentTime) {
           idx++;
       }
 
-      // If there is a gap between start_time and the first control, integrate using the first control.
+      // Integrate from start_time to the first control input if there's a gap.
       if (idx < control_list_.size() && control_list_[idx].timestamp > currentTime) {
+          // std::cout << "Integrating from start_time to first control input" << std::endl;
           double dt = prev_control_.timestamp - currentTime;
           integratedState = sam_motion_model_.integrateState(integratedState, prev_control_.u, dt);
           currentTime = control_list_[idx].timestamp;
+          // std::cout << "Control used: " << prev_control_.u.transpose() 
+          //           << ", timestamp: " << prev_control_.timestamp << " dt: " << dt << std::endl;
       }
 
-      // Integrate over the control sequence until reaching end_time
+      // Integrate over the control sequence until reaching end_time.
       for (; idx < control_list_.size() && control_list_[idx].timestamp <= end_time; idx++) {
-          double dt = (idx == 0) ? control_list_[idx].timestamp - currentTime :
-                                  control_list_[idx].timestamp - currentTime;
+          // std::cout << "Integrating between control inputs" << std::endl;
+          double dt = control_list_[idx].timestamp - currentTime;
           integratedState = sam_motion_model_.integrateState(integratedState, control_list_[idx].u, dt);
           currentTime = control_list_[idx].timestamp;
+          // std::cout << "Control used: " << control_list_[idx].u.transpose() 
+                    // << ", timestamp: " << control_list_[idx].timestamp << " dt: " << dt << std::endl;
       }
 
-      // Integrate from the last control to end_time, if necessary
+      // Integrate from the last control to end_time if necessary.
       double dt = end_time - currentTime;
       if (dt > 0) {
-          // Use the last available control input
+          // std::cout << "Integrating from last control input to end_time" << std::endl;
           integratedState = sam_motion_model_.integrateState(integratedState, control_list_.back().u, dt);
-          prev_control_ = control_list_.back();
+          // std::cout << "Control used: " << control_list_.back().u.transpose() 
+                    // << ", timestamp: " << control_list_.back().timestamp << " dt: " << dt << std::endl;
       }
-      // std::stringstream ss;
-      // ss << "Updated state: " << integratedState.transpose();
-      // RCLCPP_INFO(logger, "%s", ss.str().c_str());
-      return integratedState;
+
+      // Convert the integrated state vector back to a NavState.
+      NavState integratedNavState = vectorToState(integratedState);
+    return integratedNavState;
 
 
 }
-Eigen::VectorXd PreintegratedMotionModel::stateToVector(const gtsam::NavState& state, const gtsam::Vector3 gyro) {
+
+Eigen::VectorXd PreintegratedMotionModel::stateToVector(const gtsam::NavState& state, const gtsam::Vector3 gyro) const {
 
         // Translation and rotation this needs to be converted from ENU to NED
         Eigen::Matrix3d R_e2n;       
@@ -78,6 +95,38 @@ Eigen::VectorXd PreintegratedMotionModel::stateToVector(const gtsam::NavState& s
         state_vector << eta, nu;
         return state_vector;
 }
+
+NavState PreintegratedMotionModel::vectorToState(const Eigen::VectorXd& state_vector) const{
+  // Convert the translation and rotation from NED to ENU
+    Eigen::Matrix3d R_n2e;
+    R_n2e << 0, 1, 0,
+            1, 0, 0,
+            0, 0, -1;
+
+    // Convert the translation: from NED to ENU
+    Eigen::Vector3d t_ned = state_vector.head<3>();  // Ensure this is a 3D vector
+    Eigen::Vector3d t_enu;
+    t_enu << t_ned(1), t_ned(0), -t_ned(2);
+
+    // Get the NED rotation matrix from the nav state
+    Eigen::Quaterniond q_ned(state_vector(3), state_vector(4), state_vector(5), state_vector(6));
+    q_ned.normalize();  // Ensure the quaternion is normalized
+
+    // Convert it to ENU by applying the transformation on both sides
+    Eigen::Matrix3d R_enu = R_n2e * q_ned.toRotationMatrix() * R_n2e.transpose();
+
+    // Convert the rotation matrix to a quaternion (in ENU)
+    Eigen::Quaterniond q_enu(R_enu);
+
+    // Linear velocity
+    Eigen::Vector3d nu = state_vector.segment<3>(7);  // Ensure this is a 3D vector
+    gtsam::Rot3 rot_enu = gtsam::Rot3(R_enu);  // Convert Eigen::Matrix3d to gtsam::Rot3
+    gtsam::Point3 trans_enu(t_enu);           // Convert Eigen::Vector3d to gtsam::Point3
+    // Create the NavState object
+    NavState state(Pose3(rot_enu, trans_enu), nu);
+  return state;
+}
+
 void PreintegratedMotionModel::controlToList(const Eigen::VectorXd& u, const double& timestamp, const bool& isThrusterVector) {
           // add the first input to the qeue
           std::cout << "Control input: " << u.transpose() << std::endl;
@@ -136,8 +185,9 @@ Vector SamMotionModelFactor::evaluateError(const Pose3 &pose1, const Pose3& pose
     Matrix6 H_x_i_Tj; // will store ∂(T_j)/∂x_i
     Matrix6 H_Tj_TiInvTj; // will store ∂(T_i^-1 T_j)/∂T_j
     // Predicted state from the motion model , measured state
-    Pose3 Tj_hat = Pose3(Rot3::Quaternion(predictedModelState_(3), predictedModelState_(4), predictedModelState_(5), predictedModelState_(6)),
-                         Point3(predictedModelState_(0), predictedModelState_(1), predictedModelState_(2)));
+    NavState prev_navState = NavState(pose1, velocity1);
+    NavState predictedModelState_ = PPM_.predict(prev_navState, gyro_, start_time_, end_time_);
+    Pose3 Tj_hat = predictedModelState_.pose(); // Predicted state
     Pose3 Ti = pose1; // Estimated state
     Pose3 Tj = pose2; // Estimated state
     Pose3 Tij_hat = Ti.between(Tj_hat, &H_i, &H_j);
@@ -162,7 +212,7 @@ Vector SamMotionModelFactor::evaluateError(const Pose3 &pose1, const Pose3& pose
 
 
 
-    Vector3 predicted_velocity = Vector3(predictedModelState_(7), predictedModelState_(8), predictedModelState_(9));
+    Vector3 predicted_velocity = Vector3(predictedModelState_.velocity().x(), predictedModelState_.velocity().y(), predictedModelState_.velocity().z());
     Vector velocity_error = velocity2 - predicted_velocity;
     Vector error(9);
     error << pose_error, velocity_error;
@@ -184,13 +234,14 @@ Vector SamMotionModelFactor::evaluateError(const Pose3 &pose1, const Pose3& pose
     if(H2){
       //Since pose2 is the estimated state we are comparing to, the jacobian is identity matrix
       *H2 = Matrix::Zero(9, 6);
+      Matrix6 H2_ana = H_A_logA * H_TiInvTj_A * H_Tj_TiInvTj*H_x_i_Tj;
         Matrix H2_pose = gtsam::numericalDerivative11<Vector, Pose3>( 
         [this, pose1, velocity1, velocity2](const Pose3& p2){
           return this->evaluateError(pose1, p2, velocity1, velocity2);},pose2);
-        H2->block<6,6>(0,0) = H2_pose.block(0, 0, 6,6);
-      Matrix6 H2_ana = H_A_logA * H_TiInvTj_A * H_Tj_TiInvTj*H_x_i_Tj;
-      std::cout << "H2_ana: " << H2_ana << std::endl;
-      std::cout << "H2_pose: " << H2_pose << std::endl;
+        H2->block<6,6>(0,0) = H2_ana.block(0, 0, 6,6);
+      // Matrix6 H2_ana = H_A_logA * H_TiInvTj_A * H_Tj_TiInvTj*H_x_i_Tj;
+      // std::cout << "H2_ana: " << H2_ana << std::endl;
+      // std::cout << "H2_pose: " << H2_pose << std::endl;
     }
 
       // 
