@@ -14,8 +14,9 @@
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/base/Matrix.h>
 #include <hydrobatic_localization/SamMotionModel.h>
-#include <rclcpp/rclcpp.hpp>
+#include <gtsam/base/OptionalJacobian.h>
 namespace gtsam {
+
 
 class PreintegratedMotionModel
 {
@@ -25,32 +26,42 @@ class PreintegratedMotionModel
       double timestamp;
       Eigen::VectorXd u;};
   std::vector<controlSequence> control_list_;
-  SamMotionModelWrapper sam_motion_model_;
+  std::shared_ptr<SamMotionModelWrapper> sam_motion_model_;
   controlSequence prev_control_;
   double dt_;
+  NavState predictedState_j; 
+  gtsam::Pose3 deltaPose_;       // Relative pose from i -> i+1
+  gtsam::Vector3 deltaVel_;      // Relative velocity
+  double deltaT_;                // total integration time
 
   public:
   /**
    * @brief Constructor for the PreintegratedMotionModel
    * @param dt: time step for the motion model
    */
-  PreintegratedMotionModel(double dt): dt_(dt) ,sam_motion_model_(dt) {
+  PreintegratedMotionModel(double dt): dt_(dt) ,sam_motion_model_(std::shared_ptr<SamMotionModelWrapper>(new SamMotionModelWrapper(dt))) {
     prev_control_.u = Eigen::VectorXd::Zero(6);
   }
   /**
-   * @brief Resets the control list and sets the pre control
+   * @brief Resets the control list and sets the prev control
    */
   void resetIntegration() {
-      prev_control_ = control_list_.back();
-      control_list_.clear();
+    if (!control_list_.empty()) {
+        prev_control_ = control_list_.back();
+    } else {
+        prev_control_.u = Eigen::VectorXd::Zero(6);
+    }
+    control_list_.clear();
 
   }
+
+
   /**
    * @brief Predicts the next state from the current state and the control inputs
    * @param state: the current state
    * @return NavState: the predicted state
    */
-  NavState predict(const NavState& state,const Vector3& gyro,  const double start_time, const double end_time) const;
+  NavState predict(const NavState& state,const Vector3& gyro,  const double start_time, const double end_time) ;
 
   /**
    * @brief Function to add control inputs to the control seqeuence
@@ -73,7 +84,7 @@ class PreintegratedMotionModel
   * @param state_vector: the state vector in NED
   * @return NavState: the gtsam::NavState object in NED
   */
-  NavState vectorToState(const Eigen::VectorXd& state_vector) const ;
+  NavState vectorToState(const Eigen::VectorXd& state_vector, const NavState& pose1) const ;
 
   std::vector<controlSequence> getControlList() const {
       return control_list_;
@@ -82,12 +93,22 @@ class PreintegratedMotionModel
   Eigen::VectorXd getPrevControl() const {
       return prev_control_.u;
   }
+  
+      gtsam::Pose3 getDeltaPose() const {
+        return deltaPose_;
+    }
+
+    // Getter for deltaVel_
+    gtsam::Vector3 getDeltaVel() const {
+        return deltaVel_;
+    }
+
 
 };
 
 class SamMotionModelFactor : public NoiseModelFactor4<Pose3, Pose3, Vector3,Vector3> {
  private:
-  PreintegratedMotionModel PPM_;
+  const PreintegratedMotionModel PPM_;
   double start_time_;
   double end_time_;
   Vector3 gyro_;
@@ -106,7 +127,8 @@ class SamMotionModelFactor : public NoiseModelFactor4<Pose3, Pose3, Vector3,Vect
    * @param end_time the end time of the integration
    * @param pmm the preintegrated motion model
    */
-  SamMotionModelFactor(Key poseKey1,Key poseKey2, Key velKey1,Key velKey2 , const SharedNoiseModel& model, const double& start_time, const double& end_time,const PreintegratedMotionModel& pmm, const Vector3& gyro):
+  SamMotionModelFactor(Key poseKey1,Key poseKey2, Key velKey1,Key velKey2 , const SharedNoiseModel& model, 
+  const double& start_time, const double& end_time, const PreintegratedMotionModel& pmm, const Vector3& gyro):
   Base(model, poseKey1, poseKey2, velKey1, velKey2), start_time_(start_time), end_time_(end_time), PPM_(pmm), gyro_(gyro) {}
        
    /**
@@ -118,7 +140,8 @@ class SamMotionModelFactor : public NoiseModelFactor4<Pose3, Pose3, Vector3,Vect
     * @return returns the residual
     */
   Vector evaluateError(const Pose3 &pose1, const Pose3& pose2,const Vector3 &velocity1, const Vector3& velocity2,
-                    gtsam::OptionalMatrixType H1 = OptionalNone, gtsam::OptionalMatrixType H2 = OptionalNone, gtsam::OptionalMatrixType H3 = OptionalNone, gtsam::OptionalMatrixType H4 = OptionalNone) const override;
+                    gtsam::OptionalMatrixType H1 = OptionalNone, gtsam::OptionalMatrixType H2 = OptionalNone,
+                     gtsam::OptionalMatrixType H3 = OptionalNone, gtsam::OptionalMatrixType H4 = OptionalNone) const override;
 
 
 };

@@ -45,7 +45,7 @@
 #include <GeographicLib/LocalCartesian.hpp>
 #include <vector>
 #include <GeographicLib/UTMUPS.hpp>
-
+#include <fstream>
 #include <thread>
 #include <chrono>
 #include <mutex>
@@ -53,6 +53,7 @@
 // Include the GtsamGraph class
 #include "hydrobatic_localization/gtsam_graph.h"
 #include "hydrobatic_localization/SamMotionModel.h"
+#include "hydrobatic_localization/SamMotionModelFactor.h"
 
 using namespace gtsam;
 
@@ -159,6 +160,7 @@ private:
   // State variables
   int number_of_imu_measurements;
   bool is_graph_initialized_;
+  // Time variables used for integration
   double current_time;
   double last_time_;
 
@@ -168,7 +170,7 @@ private:
   Rot3 initial_rotation;
 
   // For IMU integration
-  Vector3 gyro;
+  Vector3 gyro; // used for the dvl factor and motion model
   Vector3 dvl_gyro;
 
   // DVL
@@ -180,6 +182,7 @@ private:
   bool new_gps_measurement_;
   bool map_initialized_;
   double first_utm_x, first_utm_y, first_utm_z;
+
   // Barometer
   double first_barometer_measurement_;
   bool new_barometer_measurement_received_;
@@ -192,22 +195,15 @@ private:
   imuBias::ConstantBias current_imu_bias_;
   imuBias::ConstantBias current_sbg_bias_;
 
-  //Keyframe thread
-  std::thread keyframe_thread_;
-  std::mutex keyframe_mutex_;
-  std::condition_variable keyframe_cv_;
-  bool keyframe_ready_;
-  bool shutdown_keyframe_thread_ = false;
 
   //Motion model for SAM
-  std::unique_ptr<SamMotionModelWrapper> sam_motion_model_;
+  std::shared_ptr<PreintegratedMotionModel> pmm;
   double dt_;
-  bool initial_control_input_received_;
-  sam_msgs::msg::ThrusterAngles latest_thruster_vector_;
-  Eigen::VectorXd current_integration_state_; 
-  bool new_current_integration_state_;
-  std::mutex control_queue_mutex_;
   bool using_motion_model_;
+
+
+  //Log file
+  std::ofstream logFile_;
 
 
   // Helper functions

@@ -75,7 +75,7 @@ NavState GtsamGraph::addImuFactor() {
   return predicted_state;
 }
 
- 
+
 NavState GtsamGraph::addSbgFactor() {
     PreintegratedCombinedMeasurements pim = *sbg_preintegrated_;
     CombinedImuFactor imu_factor(
@@ -98,6 +98,15 @@ NavState GtsamGraph::addSbgFactor() {
  TODO: add all extrinsics to a seperate class/struct
 */
 
+
+void GtsamGraph::addMotionModelFactor(const double start_time, const double end_time,
+ const std::shared_ptr<const PreintegratedMotionModel>& pmm, const Vector3& gyro){
+
+  auto motionModelNoise = noiseModel::Isotropic::Sigma(9, 0.1);
+  // auto motionModelNoise = noiseModel::Diagonal::Sigmas((Vector(9) <<
+  graph_.add(SamMotionModelFactor(X(current_index_), X(current_index_+1), V(current_index_), V(current_index_+1),
+                                  motionModelNoise, start_time, end_time, *pmm, gyro));
+}
 void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro) {
   auto dvl_noise = noiseModel::Diagonal::Sigmas((Vector(3) << 0.01, 0.01, 0.1).finished());
   Vector3 base_link_to_dvl_offset(0.573 ,0.0 ,-0.063); 
@@ -119,11 +128,16 @@ void GtsamGraph::addBarometerFactor(double depth_measurement) {
 }
 
 void GtsamGraph::optimize() {
+  std::cout << "Optimizing the graph with " << std::endl;
   current_index_++;
   LevenbergMarquardtParams params;
   // params.setVerbosity("ERROR");
+  auto t1 = std::chrono::high_resolution_clock::now();
   LevenbergMarquardtOptimizer optimizer(graph_, initial_estimate_, params);
   Values result = optimizer.optimize();
+  auto t2 = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> elapsed_time = t2 - t1;
+  std::cout << "Optimization took " << elapsed_time.count() << " seconds." << std::endl;
   // result.print("Final Result:\n");
 
   current_imu_bias_ = result.at<imuBias::ConstantBias>(B(current_index_));
@@ -132,6 +146,7 @@ void GtsamGraph::optimize() {
 
   imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
   sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
+  std::cout<< "Optimizer done: " << std::endl;
 
 }
 

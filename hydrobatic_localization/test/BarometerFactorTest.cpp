@@ -42,11 +42,7 @@ TEST(NonlinearFactor, BarometerFactor) {
 
 TEST(NonlinearFactor1, BarometerFactor) {
   // Create a factor with:
-  // - pose key X(1)
-  // - a base_llink to pressure offset corresponding to sam
-  // - a measured depth of -8
-  // - a estimated base link depth of -10
-  // - rotation of 45 degree around the x axis
+
   Vector3 base_to_pressure_offset(-0.503, 0.025, 0.057);
   BarometerFactor factor(X(1), -8.0, base_to_pressure_offset,
                          noiseModel::Unit::Create(1));

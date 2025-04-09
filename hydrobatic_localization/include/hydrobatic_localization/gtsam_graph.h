@@ -17,6 +17,7 @@
 #include <gtsam/slam/dataset.h>
 #include <hydrobatic_localization/BarometerFactor.h>
 #include <hydrobatic_localization/DvlFactor.h>
+#include <hydrobatic_localization/SamMotionModelFactor.h>
 #include <vector>
 
 using namespace gtsam;
@@ -59,6 +60,16 @@ public:
    * @return the predicted state as a NavState
    */
   NavState addSbgFactor();
+
+
+  /**
+   * @brief Add a motion model factor to the factor graph
+   * @param start_time: the start time of the integration
+   * @param end_time: the end time of the integration
+   * @param pmm: the preintegrated motion model as a shard_ptr
+   * @param gyro: the angular velocity measurement from the IMU
+   */
+  void addMotionModelFactor(const double start_time, const double end_time, const std::shared_ptr<const PreintegratedMotionModel>& pmm, const Vector3& gyro);
 
   /**
    * @brief Add a DVL factor to the factor graph
