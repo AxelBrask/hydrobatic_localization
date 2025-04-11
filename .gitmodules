@@ -1,1 +1,4 @@
 
+[submodule "hydrobatic_localization/smarc_modelling"]
+	path = hydrobatic_localization/smarc_modelling
+	url = git@github.com:AxelBrask/smarc_modelling.git
