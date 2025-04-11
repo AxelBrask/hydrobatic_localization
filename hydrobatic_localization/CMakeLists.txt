@@ -23,6 +23,7 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(GeographicLib REQUIRED)
+find_package(message_filters REQUIRED)
 find_package(pybind11 REQUIRED)
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 find_library(CPPUNITLITE_LIBRARY NAMES CppUnitLite PATHS /usr/local/lib)
@@ -61,10 +62,18 @@ target_link_libraries(state_estimator
   GeographicLib::GeographicLib
   )
 
+# add logger node executable
+add_executable(logger src/loggerNode.cpp)
+ament_target_dependencies(logger
+  rclcpp
+  nav_msgs
+  message_filters
+  )
 # Insatll the executablese, headers and launch files
 install(TARGETS
   # hydrobatic_localization
   state_estimator
+  logger
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY include/
