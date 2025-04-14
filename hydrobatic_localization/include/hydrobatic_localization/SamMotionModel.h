@@ -20,7 +20,8 @@
 namespace py = pybind11;
 
 /**
- * @brief Wrapper class for the SAM motion model
+ * @brief Wrapper class for the SAM motion model which uses pybind11,
+ * a better solution might be to compile the casadi motion model to c code and use that.
  */
 class SamMotionModelWrapper {
 
@@ -51,19 +52,11 @@ public:
                                    const double& integration_time) const;
 
 private:
-    // A helper struct for the control queue (currently unused)
-    struct controlSequence {
-        double timestamp;
-        Eigen::VectorXd u;
-    };
+
 
     double dt_;
     py::object sam_object_;
-    Eigen::VectorXd prev_control_;
     py::object dynamics_func_;
-    py::object jacobian_func_;
-    std::deque<controlSequence> control_queue_;
-    static std::mutex pyMutex;
 };
 
 #endif // SAMMOTIONMODEL_H

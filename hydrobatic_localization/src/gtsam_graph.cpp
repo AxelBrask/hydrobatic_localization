@@ -1,7 +1,7 @@
 #include "hydrobatic_localization/gtsam_graph.h"
 #include <cmath>
 
-GtsamGraph::GtsamGraph() : current_index_(0) {
+GtsamGraph::GtsamGraph(InferenceStrategy strategy) : current_index_(0), inference_strategy_(strategy) {
 
     // Initialize the IMU preintegrator using the parameters from the GTSAM side.
   imuBias::ConstantBias prior_bias;
@@ -12,6 +12,26 @@ GtsamGraph::GtsamGraph() : current_index_(0) {
   imuBias::ConstantBias prior_sbg_bias;
   auto sbg_param = getSbgParams();
   sbg_preintegrated_ = std::make_shared<PreintegratedCombinedMeasurements>(sbg_param, prior_sbg_bias);
+  
+  if(strategy == InferenceStrategy::ISAM2){
+    std::cout << "Using ISAM2" << std::endl;
+    gtsam::ISAM2Params params;
+    params.relinearizeThreshold = 0.01;
+    params.relinearizeSkip = 1;
+    params.enablePartialRelinearizationCheck = true;
+    isam_ = std::make_shared<gtsam::ISAM2>(params);
+  }
+  else if(strategy == InferenceStrategy::FixedLagSmoothing){
+    std::cout << "Using FixedLagSmoothing" << std::endl;
+    smootherLag = 6.0;
+    // gtsam::ISAM2Params params;
+    // params.relinearizeThreshold = 0.01;
+    // params.relinearizeSkip = 1;
+    fixed_lag_smoother_ = std::make_shared<gtsam::BatchFixedLagSmoother>(smootherLag);
+
+  }
+
+
 }
 
 
@@ -69,6 +89,9 @@ NavState GtsamGraph::addImuFactor() {
   initial_estimate_.insert(X(current_index_+1), predicted_state.pose());
   initial_estimate_.insert(V(current_index_+1), predicted_state.v());
   initial_estimate_.insert(B(current_index_+1), current_imu_bias_);
+  smoother_timestamp_map_[X(current_index_+1)] = time_stamp_;
+  smoother_timestamp_map_[V(current_index_+1)] = time_stamp_;
+  smoother_timestamp_map_[B(current_index_+1)] = time_stamp_;
 
   // Update the current index.
   // current_index_ = next_index; 
@@ -91,6 +114,7 @@ NavState GtsamGraph::addSbgFactor() {
   // initial_estimate_.insert(X(current_index_+1), predicted_state.pose());
   // initial_estimate_.insert(V(current_index_+1), predicted_state.v());
   initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
+  smoother_timestamp_map_[B2(current_index_+1)] = time_stamp_;
   return predicted_state;
     }
 
@@ -102,13 +126,13 @@ NavState GtsamGraph::addSbgFactor() {
 void GtsamGraph::addMotionModelFactor(const double start_time, const double end_time,
  const std::shared_ptr<const PreintegratedMotionModel>& pmm, const Vector3& gyro){
 
-  auto motionModelNoise = noiseModel::Isotropic::Sigma(9, 0.1);
+  auto motionModelNoise = noiseModel::Isotropic::Sigma(9, 0.01);
   // auto motionModelNoise = noiseModel::Diagonal::Sigmas((Vector(9) <<
   graph_.add(SamMotionModelFactor(X(current_index_), X(current_index_+1), V(current_index_), V(current_index_+1),
                                   motionModelNoise, start_time, end_time, *pmm, gyro));
 }
 void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro) {
-  auto dvl_noise = noiseModel::Diagonal::Sigmas((Vector(3) << 0.01, 0.01, 0.1).finished());
+  auto dvl_noise = noiseModel::Diagonal::Sigmas((Vector(3) << 0.001, 0.001, 0.1).finished());
   Vector3 base_link_to_dvl_offset(0.573 ,0.0 ,-0.063); 
   Rot3 base_link_dvl_rotation = Rot3::Identity();
   graph_.add(DvlFactor(X(current_index_+1),V(current_index_+1),B(current_index_+1),
@@ -116,7 +140,7 @@ void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro) 
 }
 
 void GtsamGraph::addGpsFactor(const Point3& gps_point) {
-  auto gps_noise = noiseModel::Diagonal::Sigmas((Vector(3) << 0.005, 0.005, 0.1).finished());
+  auto gps_noise = noiseModel::Diagonal::Sigmas((Vector(3) << 1.0, 1.0, 1.0).finished());
   Point3 base_to_gps_offset(0.528 ,0.0, 0.071);
   graph_.add(GPSFactorArm(X(current_index_+1), gps_point, base_to_gps_offset, gps_noise));
 }
@@ -128,16 +152,16 @@ void GtsamGraph::addBarometerFactor(double depth_measurement) {
 }
 
 void GtsamGraph::optimize() {
-  std::cout << "Optimizing the graph with " << std::endl;
+  if(inference_strategy_ ==InferenceStrategy::FullSmoothing){
+    std::cout << "Full Smoothing optmizer" << std::endl;
+    // optimizeFullSmoothing();
+
   current_index_++;
   LevenbergMarquardtParams params;
   // params.setVerbosity("ERROR");
   auto t1 = std::chrono::high_resolution_clock::now();
   LevenbergMarquardtOptimizer optimizer(graph_, initial_estimate_, params);
   Values result = optimizer.optimize();
-  auto t2 = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> elapsed_time = t2 - t1;
-  std::cout << "Optimization took " << elapsed_time.count() << " seconds." << std::endl;
   // result.print("Final Result:\n");
 
   current_imu_bias_ = result.at<imuBias::ConstantBias>(B(current_index_));
@@ -146,9 +170,43 @@ void GtsamGraph::optimize() {
 
   imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
   sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
-  std::cout<< "Optimizer done: " << std::endl;
+  }
+  else if(inference_strategy_ == InferenceStrategy::FixedLagSmoothing){
+    std::cout << "Fixed Lag Smoothing optmizer" << std::endl;
+    current_index_++;
+    fixed_lag_smoother_->update(graph_, initial_estimate_,smoother_timestamp_map_);
+    Values result = fixed_lag_smoother_->calculateEstimate();
+    current_imu_bias_ = result.at<imuBias::ConstantBias>(B(current_index_));
+    // current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_));
+    previous_state_ = NavState(result.at<Pose3>(X(current_index_)), result.at<Vector3>(V(current_index_)));
+    //log the current size of the graph
+    std::cout<< "Graph size: " << graph_.size() << std::endl;
+    graph_.resize(0);
+    smoother_timestamp_map_.clear();
+    initial_estimate_.clear();
+    imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
+    sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
+  }
+
+
+  else if(inference_strategy_ == InferenceStrategy::ISAM2){
+    std::cout << "ISAM2 optmizer" << std::endl;
+    current_index_++,
+    isam_->update(graph_, initial_estimate_);
+
+    Values result = isam_->calculateEstimate();
+    current_imu_bias_ = result.at<imuBias::ConstantBias>(B(current_index_));
+    // current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_));
+    previous_state_ = NavState(result.at<Pose3>(X(current_index_)), result.at<Vector3>(V(current_index_)));
+    graph_.resize(0);
+    initial_estimate_.clear();
+    imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
+    sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
+
+  }
 
 }
+
 
 NavState GtsamGraph::getCurrentState() const {
   return previous_state_;
@@ -169,7 +227,7 @@ int GtsamGraph::getCurrentIndex() const {
 std::shared_ptr<PreintegratedCombinedMeasurements::Params> GtsamGraph::getImuParams() {
   double accel_noise_sigma = 2.0e-4;
   double gyro_noise_sigma = 5.0e-4;
-  double accel_bias_rw_sigma = 1e-4;
+  double accel_bias_rw_sigma = 1e-3;
   double gyro_bias_rw_sigma = 1e-3;
   Matrix33 measured_acc_cov = I_3x3 * pow(accel_noise_sigma, 2);
   Matrix33 measured_omega_cov = I_3x3 * pow(gyro_noise_sigma, 2);
@@ -189,16 +247,16 @@ std::shared_ptr<PreintegratedCombinedMeasurements::Params> GtsamGraph::getImuPar
 }
 
 std::shared_ptr<PreintegratedCombinedMeasurements::Params> GtsamGraph::getSbgParams() {
-  double accel_noise_sigma = 2.0e-6;
-  double gyro_noise_sigma = 5.0e-6;
-  double accel_bias_rw_sigma = 1e-3;
-  double gyro_bias_rw_sigma = 1e-4;
+  double accel_noise_sigma = 2.0e-5;
+  double gyro_noise_sigma = 5.0e-7;
+  double accel_bias_rw_sigma = 1e-4;
+  double gyro_bias_rw_sigma = 1e-7;
   Matrix33 measured_acc_cov = I_3x3 * pow(accel_noise_sigma, 2);
   Matrix33 measured_omega_cov = I_3x3 * pow(gyro_noise_sigma, 2);
   Matrix33 integration_error_cov = I_3x3 * 1e-8;
   Matrix33 bias_acc_cov = I_3x3 * pow(accel_bias_rw_sigma, 2);
   Matrix33 bias_omega_cov = I_3x3 * pow(gyro_bias_rw_sigma, 2);
-  Matrix66 bias_acc_omega_init = I_6x6 * 1e-5;
+  Matrix66 bias_acc_omega_init = I_6x6 * 1e-8;
   auto params = PreintegratedCombinedMeasurements::Params::MakeSharedD(9.81);
   params->accelerometerCovariance = measured_acc_cov;
   params->integrationCovariance = integration_error_cov;

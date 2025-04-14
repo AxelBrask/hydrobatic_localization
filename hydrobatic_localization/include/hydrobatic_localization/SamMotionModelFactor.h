@@ -21,18 +21,19 @@ namespace gtsam {
 class PreintegratedMotionModel
 {
   private:
-  //list of the motion model inputs:
+  // control sequence struct to store timestamp and control input
   struct controlSequence {
       double timestamp;
       Eigen::VectorXd u;};
+  //list of the motion model inputs to use for the dynamics
   std::vector<controlSequence> control_list_;
-  std::shared_ptr<SamMotionModelWrapper> sam_motion_model_;
+  std::shared_ptr<SamMotionModelWrapper> sam_motion_model_; // might be better to seperate this from the preintegrated class since now every factro will share ownership
   controlSequence prev_control_;
   double dt_;
   NavState predictedState_j; 
   gtsam::Pose3 deltaPose_;       // Relative pose from i -> i+1
   gtsam::Vector3 deltaVel_;      // Relative velocity
-  double deltaT_;                // total integration time
+  double deltaT_;                
 
   public:
   /**
@@ -43,7 +44,7 @@ class PreintegratedMotionModel
     prev_control_.u = Eigen::VectorXd::Zero(6);
   }
   /**
-   * @brief Resets the control list and sets the prev control
+   * @brief Resets the control list and sets the prev control, should be after each optimization of the graph
    */
   void resetIntegration() {
     if (!control_list_.empty()) {
@@ -89,16 +90,22 @@ class PreintegratedMotionModel
   std::vector<controlSequence> getControlList() const {
       return control_list_;
   }
-  
+  /**
+   * @brief Function to get the previous control input
+   */
   Eigen::VectorXd getPrevControl() const {
       return prev_control_.u;
   }
-  
+  /**
+   * @brief Function to get the delta pose computed from the predict function.
+   */
       gtsam::Pose3 getDeltaPose() const {
         return deltaPose_;
     }
 
-    // Getter for deltaVel_
+    /**
+     * @brief Function to get the delta velocity computed from the predict function
+     */
     gtsam::Vector3 getDeltaVel() const {
         return deltaVel_;
     }

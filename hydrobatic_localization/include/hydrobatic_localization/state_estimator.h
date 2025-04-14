@@ -155,6 +155,7 @@ private:
   rclcpp::CallbackGroup::SharedPtr sbg_callback_group_;
 
   // Instance of the GtsamGraph class
+  std::string inference_strategy_;
   std::unique_ptr<GtsamGraph> gtsam_graph_;
 
   // State variables

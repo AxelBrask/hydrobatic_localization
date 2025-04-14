@@ -11,7 +11,6 @@ SamMotionModelWrapper::SamMotionModelWrapper(double dt)
         dynamics_func_ = sam_object_.attr("dynamics")();
     }
 
-    prev_control_ = Eigen::VectorXd::Zero(6);
 }
 
 Eigen::VectorXd SamMotionModelWrapper::Dynamics(const Eigen::VectorXd& x, const Eigen::VectorXd& u) const {

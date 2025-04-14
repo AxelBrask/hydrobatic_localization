@@ -12,23 +12,29 @@ StateEstimator::StateEstimator()
     first_barometer_measurement_(0.0), new_barometer_measurement_received_(false), atmospheric_pressure_(101325.0),
     dt_(0.01)
 {
-
-  // logFile_.open("state_estimator_log.csv");
-  // logFile_ << "time, est_pos_x, est_pos_y, est_pos_z, est_quat_w, est_quat_x, est_quat_y, est_quat_z, "
-  //          << "est_vel_x, est_vel_y, est_vel_z, "
-  //          << "gt_pos_x, gt_pos_y, gt_pos_z, gt_quat_w, gt_quat_x, gt_quat_y, gt_quat_z\n";
-
-
-
+  // Declare parameters
   this->declare_parameter<bool>("use_motion_model", true);
   this->get_parameter("use_motion_model", using_motion_model_);
+
+  this->declare_parameter<std::string>("inference_strategy","FullSmoothing");
+  this->get_parameter("inference_strategy", inference_strategy_);
+  InferenceStrategy inference_strategy;
+  if(inference_strategy_ == "ISAM2"){
+    inference_strategy = InferenceStrategy::ISAM2;
+  }
+  else if(inference_strategy_ == "FixedLagSmoothing"){
+    inference_strategy = InferenceStrategy::FixedLagSmoothing;
+  }
+  else{
+    inference_strategy = InferenceStrategy::FullSmoothing;
+  }
   // Subscriptions for sensors
   stim_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
       sam_msgs::msg::Topics::STIM_IMU_TOPIC, 10,
       std::bind(&StateEstimator::imu_callback, this, std::placeholders::_1));
 
   // sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
-  //     sam_msgs::msg::Topics::SBG_IMU_TOPIC, 100,
+  //     sam_msgs::msg::Topics::SBG_IMU_TOPIC, 10,
   //     std::bind(&StateEstimator::sbg_callback, this, std::placeholders::_1));
 
   dvl_sub_ = this->create_subscription<smarc_msgs::msg::DVL>(
@@ -74,27 +80,21 @@ StateEstimator::StateEstimator()
       "estimated_pose", 10);
   // Timer for keyframe updates. This should be changed to a seperate thread
   KeyframeTimer = this->create_wall_timer(
-      std::chrono::milliseconds(200), std::bind(&StateEstimator::KeyframeTimerCallback, this));
+      std::chrono::milliseconds(100), std::bind(&StateEstimator::KeyframeTimerCallback, this));
 
-  //Initialize the Sam Motion Model
-  // sam_motion_model_ = std::make_unique<SamMotionModelWrapper>(dt_);
-  // Initialize the GtsamGraph
-  gtsam_graph_ = std::make_unique<GtsamGraph>();
+  // Initialize the GtsamGraph with the chosen inference strategy
+  gtsam_graph_ = std::make_unique<GtsamGraph>(inference_strategy);
   pmm = std::make_unique<PreintegratedMotionModel>(dt_);
   //get the start time
 
 }
 
 void StateEstimator::ThrusterVectorCallback(const sam_msgs::msg::ThrusterAngles::SharedPtr msg){
-  auto t1 = std::chrono::high_resolution_clock::now();
   Eigen::VectorXd u(2);
   u << msg->thruster_vertical_radians, msg->thruster_horizontal_radians;
   rclcpp::Time time(msg->header.stamp);
   double timestamp = time.seconds();
   pmm -> controlToList(u,timestamp,true);
-  auto t2 = std::chrono::high_resolution_clock::now();
-  auto duration = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
-  RCLCPP_INFO(this->get_logger(), "Time taken adding to queue: %f", duration/1000000.0);
 }
 
 void StateEstimator::control_input_callback(const smarc_msgs::msg::ThrusterFeedback::ConstSharedPtr thruster1,
@@ -294,6 +294,9 @@ void StateEstimator::KeyframeThread() {
 
 void StateEstimator::KeyframeTimerCallback(){
   // need to have at least 6 imu measurements to initialize the graph with the current orientation
+  double current_time = this->get_clock()->now().seconds();
+  gtsam_graph_-> setTimeStamp(current_time);
+  auto t1 = std::chrono::high_resolution_clock::now();
     if(number_of_imu_measurements < 6){
       return;
       }
@@ -348,7 +351,6 @@ void StateEstimator::KeyframeTimerCallback(){
 
 
     if(using_motion_model_){
-      double current_time = this->get_clock()->now().seconds();
       NavState state = NavState(previous_state_.pose(), previous_state_.velocity());
 
       NavState new_state = pmm->predict(state, gyro, last_time_, current_time);
@@ -443,7 +445,9 @@ void StateEstimator::KeyframeTimerCallback(){
     out_transform.transform.rotation.w = out_quat.w();
     tf_broadcast_.sendTransform(out_transform);
 
-
+    auto t2 = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> elapsed_time = t2 - t1;
+  std::cout << "Optimization took " << elapsed_time.count() << " seconds." << std::endl;
 
 }
 

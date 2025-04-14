@@ -35,7 +35,7 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
 
       // Integrate over the control sequence until reaching end_time.
       for (; idx < control_list_.size()-1 && control_list_[idx+1].timestamp <= end_time; idx++) {
-          std::cout << "Integrating between control inputs" << std::endl;
+          // std::cout << "Integrating between control inputs" << std::endl;
           double dt = control_list_[idx+1].timestamp - currentTime;
           integratedState = sam_motion_model_->integrateState(integratedState, control_list_[idx].u, dt);
           currentTime = control_list_[idx+1].timestamp;
@@ -48,7 +48,7 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
       // Integrate from the last control to end_time if necessary.
       double dt = end_time - control_list_[idx].timestamp;
       if (dt > 0) {
-          std::cout << "Integrating from last control input to end_time" << std::endl;
+          // std::cout << "Integrating from last control input to end_time" << std::endl;
           integratedState = sam_motion_model_->integrateState(integratedState, control_list_.back().u, dt);
           // std::cout << "Control used: " << control_list_.back().u.transpose() 
                     // << ", timestamp: " << control_list_.back().timestamp << " dt: " << dt << std::endl;

@@ -19,12 +19,18 @@
 #include <hydrobatic_localization/DvlFactor.h>
 #include <hydrobatic_localization/SamMotionModelFactor.h>
 #include <vector>
+#include <gtsam/nonlinear/ISAM2.h>
+#include <gtsam/nonlinear/BatchFixedLagSmoother.h>
 
 using namespace gtsam;
 using symbol_shorthand::X; // Pose
 using symbol_shorthand::V; // Velocity
 using symbol_shorthand::B; // Bias
-
+enum class InferenceStrategy {
+    FullSmoothing,
+    FixedLagSmoothing,
+    ISAM2
+};
 //Defining shorthand for sbg bias
 namespace gtsam {
 namespace symbol_shorthand {
@@ -39,7 +45,7 @@ inline gtsam::Key B2(size_t i) {
 using symbol_shorthand::B2; // Bias for SBG
 class GtsamGraph {
 public:
-  GtsamGraph();
+  GtsamGraph(InferenceStrategy strategy = InferenceStrategy::FullSmoothing);
 
   /**
    * @brief Initialize the factor graph and the state with prior factors
@@ -138,14 +144,24 @@ public:
    */
   void integrateSbgMeasurement(const Vector3& acc, const Vector3& gyro, const double dt);
 
+  void setTimeStamp(double time_stamp) {time_stamp_ = time_stamp; }
 private:
   NonlinearFactorGraph graph_;
   Values initial_estimate_;
   int current_index_;
   NavState previous_state_;
+  bool full_smoothing_;
   imuBias::ConstantBias current_imu_bias_;
   imuBias::ConstantBias current_sbg_bias_;
+  double time_stamp_;
 
+  //ISAM2
+  std::shared_ptr<gtsam::ISAM2> isam_;
+  InferenceStrategy inference_strategy_;
+  // FixedLagSmoothing
+  std::shared_ptr<gtsam::BatchFixedLagSmoother> fixed_lag_smoother_;
+  FixedLagSmootherKeyTimestampMap smoother_timestamp_map_;
+  double smootherLag; 
     // Preintegrated IMU measurements (GTSAM)
   std::shared_ptr<PreintegratedCombinedMeasurements> imu_preintegrated_;
   //Preintegrated SBG measurements (GTSAM)
