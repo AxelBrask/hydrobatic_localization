@@ -34,6 +34,7 @@ plt.legend(loc='upper right', fontsize=10)
 plt.tight_layout()
 plt.show()# Create a plot for the trajectories in the XY plane
 plt.figure(figsize=(10, 8))
+##plot dvl and estimated vleocitu when doing hydrobatic manuvers
 
 # Plot the estimated trajectory: X vs. Y
 plt.plot(df['est_pos_x'], df['est_pos_y'], label='Estimated Trajectory',

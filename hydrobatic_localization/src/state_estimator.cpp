@@ -33,9 +33,9 @@ StateEstimator::StateEstimator()
       sam_msgs::msg::Topics::STIM_IMU_TOPIC, 10,
       std::bind(&StateEstimator::imu_callback, this, std::placeholders::_1));
 
-  // sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
-  //     sam_msgs::msg::Topics::SBG_IMU_TOPIC, 10,
-  //     std::bind(&StateEstimator::sbg_callback, this, std::placeholders::_1));
+  sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
+      sam_msgs::msg::Topics::SBG_IMU_TOPIC, 10,
+      std::bind(&StateEstimator::sbg_callback, this, std::placeholders::_1));
 
   dvl_sub_ = this->create_subscription<smarc_msgs::msg::DVL>(
       sam_msgs::msg::Topics::DVL_TOPIC, 10,
@@ -378,7 +378,7 @@ void StateEstimator::KeyframeTimerCallback(){
     // Predict the next state using the preintegrated measurements AND add the imu factor to the graph.
     NavState predictes_imu_state = gtsam_graph_->addImuFactor();
 
-    // NavState predicted_sbg_state = gtsam_graph_->addSbgFactor();
+    NavState predicted_sbg_state = gtsam_graph_->addSbgFactor();
 
    
     // Add the DVL, GPS and Barometer factors to the graph.

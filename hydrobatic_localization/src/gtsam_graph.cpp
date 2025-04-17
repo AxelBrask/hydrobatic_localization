@@ -23,7 +23,7 @@ GtsamGraph::GtsamGraph(InferenceStrategy strategy) : current_index_(0), inferenc
   }
   else if(strategy == InferenceStrategy::FixedLagSmoothing){
     std::cout << "Using FixedLagSmoothing" << std::endl;
-    smootherLag = 6.0;
+    smootherLag = 10.0;
     // gtsam::ISAM2Params params;
     // params.relinearizeThreshold = 0.01;
     // params.relinearizeSkip = 1;
@@ -40,21 +40,21 @@ void GtsamGraph::initGraphAndState(const Rot3& initial_rot, const Point3& initia
   Vector3 prior_velocity = Vector3::Zero();
   imuBias::ConstantBias prior_imu_bias, prior_sbg_bias;
 
-  auto pose_noise = noiseModel::Isotropic::Sigma(6, 1e-3);
-  auto velocity_noise = noiseModel::Isotropic::Sigma(3, 1e-3);
+  auto pose_noise = noiseModel::Isotropic::Sigma(6, 1e-8);
+  auto velocity_noise = noiseModel::Isotropic::Sigma(3, 1e-8);
   auto bias_noise = noiseModel::Isotropic::Sigma(6, 1e-3);
 
   // Add prior factors
   graph_.addPrior<Pose3>(X(0), prior_pose, pose_noise);
   graph_.addPrior<Vector3>(V(0), prior_velocity, velocity_noise);
   graph_.addPrior<imuBias::ConstantBias>(B(0), prior_imu_bias, bias_noise);
-  // graph_.addPrior<imuBias::ConstantBias>(B2(0), prior_sbg_bias, bias_noise); 
+  graph_.addPrior<imuBias::ConstantBias>(B2(0), prior_sbg_bias, bias_noise); 
 
   // Insert initial estimates
   initial_estimate_.insert(X(0), prior_pose);
   initial_estimate_.insert(V(0), prior_velocity);
   initial_estimate_.insert(B(0), prior_imu_bias);
-  // initial_estimate_.insert(B2(0), prior_sbg_bias);
+  initial_estimate_.insert(B2(0), prior_sbg_bias);
 
   // Save the initial state.
   previous_state_ = NavState(prior_pose, prior_velocity);
@@ -126,13 +126,13 @@ NavState GtsamGraph::addSbgFactor() {
 void GtsamGraph::addMotionModelFactor(const double start_time, const double end_time,
  const std::shared_ptr<const PreintegratedMotionModel>& pmm, const Vector3& gyro){
 
-  auto motionModelNoise = noiseModel::Isotropic::Sigma(9, 0.01);
+  auto motionModelNoise = noiseModel::Isotropic::Sigma(9, 0.05);
   // auto motionModelNoise = noiseModel::Diagonal::Sigmas((Vector(9) <<
   graph_.add(SamMotionModelFactor(X(current_index_), X(current_index_+1), V(current_index_), V(current_index_+1),
                                   motionModelNoise, start_time, end_time, *pmm, gyro));
 }
 void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro) {
-  auto dvl_noise = noiseModel::Diagonal::Sigmas((Vector(3) << 0.001, 0.001, 0.1).finished());
+  auto dvl_noise = noiseModel::Diagonal::Sigmas((Vector(3) << 0.01, 0.01, 0.05).finished());
   Vector3 base_link_to_dvl_offset(0.573 ,0.0 ,-0.063); 
   Rot3 base_link_dvl_rotation = Rot3::Identity();
   graph_.add(DvlFactor(X(current_index_+1),V(current_index_+1),B(current_index_+1),
@@ -140,13 +140,13 @@ void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro) 
 }
 
 void GtsamGraph::addGpsFactor(const Point3& gps_point) {
-  auto gps_noise = noiseModel::Diagonal::Sigmas((Vector(3) << 1.0, 1.0, 1.0).finished());
+  auto gps_noise = noiseModel::Diagonal::Sigmas((Vector(3) << 10.0, 10.0, 10.0).finished());
   Point3 base_to_gps_offset(0.528 ,0.0, 0.071);
   graph_.add(GPSFactorArm(X(current_index_+1), gps_point, base_to_gps_offset, gps_noise));
 }
 
 void GtsamGraph::addBarometerFactor(double depth_measurement) {
-  auto barometer_noise = noiseModel::Diagonal::Sigmas((Vector(1) << 0.01).finished());
+  auto barometer_noise = noiseModel::Diagonal::Sigmas((Vector(1) << 0.001).finished());
   Vector3 base_to_pressure_offset(-0.503, 0.025, 0.057);
   graph_.add(BarometerFactor(X(current_index_+1), depth_measurement, base_to_pressure_offset, barometer_noise));
 }
@@ -171,13 +171,13 @@ void GtsamGraph::optimize() {
   imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
   sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
   }
-  else if(inference_strategy_ == InferenceStrategy::FixedLagSmoothing){
+  else if(inference_strategy_ == InferenceStrategy::-){
     std::cout << "Fixed Lag Smoothing optmizer" << std::endl;
     current_index_++;
     fixed_lag_smoother_->update(graph_, initial_estimate_,smoother_timestamp_map_);
     Values result = fixed_lag_smoother_->calculateEstimate();
     current_imu_bias_ = result.at<imuBias::ConstantBias>(B(current_index_));
-    // current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_));
+    current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_));
     previous_state_ = NavState(result.at<Pose3>(X(current_index_)), result.at<Vector3>(V(current_index_)));
     //log the current size of the graph
     std::cout<< "Graph size: " << graph_.size() << std::endl;
@@ -231,10 +231,10 @@ std::shared_ptr<PreintegratedCombinedMeasurements::Params> GtsamGraph::getImuPar
   double gyro_bias_rw_sigma = 1e-3;
   Matrix33 measured_acc_cov = I_3x3 * pow(accel_noise_sigma, 2);
   Matrix33 measured_omega_cov = I_3x3 * pow(gyro_noise_sigma, 2);
-  Matrix33 integration_error_cov = I_3x3 * 1e-8;
+  Matrix33 integration_error_cov = I_3x3 * 1e-5;
   Matrix33 bias_acc_cov = I_3x3 * pow(accel_bias_rw_sigma, 2);
   Matrix33 bias_omega_cov = I_3x3 * pow(gyro_bias_rw_sigma, 2);
-  Matrix66 bias_acc_omega_init = I_6x6 * 1e-8;
+  Matrix66 bias_acc_omega_init = I_6x6 * 1e-5;
   auto params = PreintegratedCombinedMeasurements::Params::MakeSharedD(9.81);
   params->accelerometerCovariance = measured_acc_cov;
   params->integrationCovariance = integration_error_cov;
@@ -247,16 +247,16 @@ std::shared_ptr<PreintegratedCombinedMeasurements::Params> GtsamGraph::getImuPar
 }
 
 std::shared_ptr<PreintegratedCombinedMeasurements::Params> GtsamGraph::getSbgParams() {
-  double accel_noise_sigma = 2.0e-5;
-  double gyro_noise_sigma = 5.0e-7;
-  double accel_bias_rw_sigma = 1e-4;
-  double gyro_bias_rw_sigma = 1e-7;
+  double accel_noise_sigma = 2.0e-4;
+  double gyro_noise_sigma = 5.0e-4;
+  double accel_bias_rw_sigma = 1e-3;
+  double gyro_bias_rw_sigma = 1e-3;
   Matrix33 measured_acc_cov = I_3x3 * pow(accel_noise_sigma, 2);
   Matrix33 measured_omega_cov = I_3x3 * pow(gyro_noise_sigma, 2);
-  Matrix33 integration_error_cov = I_3x3 * 1e-8;
+  Matrix33 integration_error_cov = I_3x3 * 1e-5;
   Matrix33 bias_acc_cov = I_3x3 * pow(accel_bias_rw_sigma, 2);
   Matrix33 bias_omega_cov = I_3x3 * pow(gyro_bias_rw_sigma, 2);
-  Matrix66 bias_acc_omega_init = I_6x6 * 1e-8;
+  Matrix66 bias_acc_omega_init = I_6x6 * 1e-5;
   auto params = PreintegratedCombinedMeasurements::Params::MakeSharedD(9.81);
   params->accelerometerCovariance = measured_acc_cov;
   params->integrationCovariance = integration_error_cov;
