@@ -10,6 +10,7 @@
 #include <smarc_msgs/msg/dvl.hpp>
 #include <smarc_msgs/msg/thruster_feedback.hpp>
 #include <smarc_msgs/msg/percent_stamped.hpp>
+#include <sam_msgs/msg/links.hpp>
 #include <sam_msgs/msg/thruster_angles.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <tf2_ros/buffer.h>

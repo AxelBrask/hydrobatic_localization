@@ -39,9 +39,9 @@ StateEstimator::StateEstimator()
       sam_msgs::msg::Topics::STIM_IMU_TOPIC, 10,
       std::bind(&StateEstimator::imu_callback, this, std::placeholders::_1));
 
-  sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
-      sam_msgs::msg::Topics::SBG_IMU_TOPIC, 10,
-      std::bind(&StateEstimator::sbg_callback, this, std::placeholders::_1));
+  // sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
+  //     sam_msgs::msg::Topics::SBG_IMU_TOPIC, 10,
+  //     std::bind(&StateEstimator::sbg_callback, this, std::placeholders::_1));
 
   dvl_sub_ = this->create_subscription<smarc_msgs::msg::DVL>(
       sam_msgs::msg::Topics::DVL_TOPIC, 10,
@@ -75,8 +75,7 @@ StateEstimator::StateEstimator()
                           std::placeholders::_3, std::placeholders::_4));
   }
 
-  // Use simulation time.
-  this->set_parameter(rclcpp::Parameter("use_sim_time", true));
+  // this->set_parameter(rclcpp::Parameter("use_sim_time", true));
   tf_static_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);  
 
   // Publishers
@@ -124,6 +123,7 @@ void StateEstimator::control_input_callback(const smarc_msgs::msg::ThrusterFeedb
 
 
 void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg) {
+  RCLCPP_INFO(this->get_logger(),"Inside IMU callback");
   Vector3 acc(msg->linear_acceleration.x,
               msg->linear_acceleration.y,
               msg->linear_acceleration.z);
@@ -148,7 +148,7 @@ void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg) {
 
 
 void StateEstimator::sbg_callback(const sensor_msgs::msg::Imu::SharedPtr msg){
-
+  RCLCPP_INFO(this->get_logger(),"Inside SBG callback");
   Vector3 acc(msg->linear_acceleration.x,
               msg->linear_acceleration.y,
               msg->linear_acceleration.z);
@@ -163,6 +163,7 @@ void StateEstimator::sbg_callback(const sensor_msgs::msg::Imu::SharedPtr msg){
 
 
 void StateEstimator::dvl_callback(const smarc_msgs::msg::DVL::SharedPtr msg) {
+  RCLCPP_INFO(this->get_logger(),"Inside DVL callback");
     Vector3 vel_dvl(msg->velocity.x, msg->velocity.y, msg->velocity.z);
     latest_dvl_measurement_ = vel_dvl;
     dvl_gyro = gyro;
@@ -172,12 +173,13 @@ void StateEstimator::dvl_callback(const smarc_msgs::msg::DVL::SharedPtr msg) {
 
 
 void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::SharedPtr msg) {
+  RCLCPP_INFO(this->get_logger(),"Inside BARO callback");
   double measured_pressure = msg->fluid_pressure;
   double depth = -(measured_pressure - atmospheric_pressure_) / 9806.65; //Down negative
 
   if (!is_graph_initialized_ && !map_initialized_) {
         try {
-        transformStamped = tf_buffer_.lookupTransform("map", "odom",
+        transformStamped = tf_buffer_.lookupTransform("map", sam_msgs::msg::Links::ODOM_LINK,
                                                       tf2::TimePointZero, std::chrono::seconds(1));
         static_offset_ = transformStamped.transform.translation.z;
 
@@ -198,11 +200,14 @@ void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::S
 
 
 void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
+  RCLCPP_INFO(this->get_logger(),"Inside GPScallback");
   double utm_x, utm_y, utm_z;
   // if sim time is used, take the ground truth as gps reading
-  if(this->get_parameter("use_sim_time").as_bool()){
+  if(this->get_parameter("use_sim_time").as_bool()==true){
+      RCLCPP_INFO(this->get_logger(),"Inside TF GPS");
+
     try{
-      transformStamped = tf_buffer_.lookupTransform("utm_34_V", "sam_auv_v1/gps_link_gt",
+      transformStamped = tf_buffer_.lookupTransform("utm_34_V",sam_msgs::msg::Links::GPS_LINK,
                                                       tf2::TimePointZero, std::chrono::seconds(1));
       utm_x = transformStamped.transform.translation.x;
       utm_y = transformStamped.transform.translation.y;
@@ -216,6 +221,7 @@ void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr m
   }
   // if not using the sim, take the real gps reading
   else {
+    RCLCPP_INFO(this->get_logger(),"Inside GPS forward");
     int utm_zone;
     bool northp;
     GeographicLib::UTMUPS::Forward(msg->latitude, msg->longitude, utm_zone, northp, utm_x, utm_y);
@@ -254,7 +260,7 @@ void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr m
     Point3 map_to_odom_offset;
     Rot3 map_to_odom_rotation;
     try{
-      transformStamped = tf_buffer_.lookupTransform("map", "odom",
+      transformStamped = tf_buffer_.lookupTransform("map", sam_msgs::msg::Links::ODOM_LINK,
                                                       tf2::TimePointZero, std::chrono::seconds(1));
       map_to_odom_offset = Point3(transformStamped.transform.translation.x,
                                   transformStamped.transform.translation.y,
@@ -313,7 +319,7 @@ void StateEstimator::KeyframeTimerCallback(){
         geometry_msgs::msg::TransformStamped odom_transform;
         odom_transform.header.stamp = this->get_clock()->now();
         odom_transform.header.frame_id = "map";
-        odom_transform.child_frame_id = "odom";
+        odom_transform.child_frame_id = sam_msgs::msg::Links::ODOM_LINK;
         // translate the map -> odom with -base_to_gps_offset in x and y
         odom_transform.transform.translation.x = -base_to_gps_offset.y();
         odom_transform.transform.translation.y = -base_to_gps_offset.x();
@@ -332,8 +338,8 @@ void StateEstimator::KeyframeTimerCallback(){
         // Broadcast the initial pose.
         geometry_msgs::msg::TransformStamped init_transform;
         init_transform.header.stamp = this->get_clock()->now();
-        init_transform.header.frame_id = "odom";
-        init_transform.child_frame_id = "estimated_pose";
+        init_transform.header.frame_id = sam_msgs::msg::Links::ODOM_LINK;
+        init_transform.child_frame_id = sam_msgs::msg::Links::BASE_LINK;
         init_transform.transform.translation.x = initial_position.x();
         init_transform.transform.translation.y = initial_position.y();
         init_transform.transform.translation.z = initial_position.z();
@@ -423,7 +429,7 @@ void StateEstimator::KeyframeTimerCallback(){
     // Publish the estimated pose.
     nav_msgs::msg::Odometry estimated_pose;
     estimated_pose.header.stamp = this->get_clock()->now();
-    estimated_pose.header.frame_id = "odom";
+    estimated_pose.header.frame_id = sam_msgs::msg::Links::ODOM_LINK;
     estimated_pose.child_frame_id = "base_link";
     estimated_pose.pose.pose.position.x = previous_state_.pose().translation().x();
     estimated_pose.pose.pose.position.y = previous_state_.pose().translation().y();
@@ -437,8 +443,8 @@ void StateEstimator::KeyframeTimerCallback(){
     // Broadcast estimated pose.
     geometry_msgs::msg::TransformStamped out_transform;
     out_transform.header.stamp = this->get_clock()->now();
-    out_transform.header.frame_id = "odom";
-    out_transform.child_frame_id = "estimated_pose";
+    out_transform.header.frame_id = sam_msgs::msg::Links::ODOM_LINK;
+    out_transform.child_frame_id = sam_msgs::msg::Links::BASE_LINK;
     Point3 estimated_translation = previous_state_.pose().translation();
     Rot3 estimated_rotation = previous_state_.pose().rotation();
     out_transform.transform.translation.x = estimated_translation.x();
