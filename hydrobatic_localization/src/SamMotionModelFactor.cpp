@@ -18,8 +18,6 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
 
       // std::cout << "start time: " << start_time << ", end time: " << end_time << std::endl;
       //print the control list
-      for (const auto& control : control_list_) {
-      }
       Eigen::VectorXd integratedState = vectorState;
       // std::cout << " Size of integrated state: " << integratedState.size() << std::endl;
       double currentTime = start_time;

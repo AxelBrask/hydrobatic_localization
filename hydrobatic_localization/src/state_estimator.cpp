@@ -25,8 +25,14 @@ StateEstimator::StateEstimator()
   else if(inference_strategy_ == "FixedLagSmoothing"){
     inference_strategy = InferenceStrategy::FixedLagSmoothing;
   }
-  else{
+  else if (inference_strategy_ == "EKF") {
+    inference_strategy = InferenceStrategy::EKF;
+  }
+  else if (inference_strategy_ == "FullSmoothing") {
     inference_strategy = InferenceStrategy::FullSmoothing;
+  }
+  else {
+    throw std::invalid_argument("Invalid inference strategy, choose between ISAM2, FixedLagSmoothing, EKF or FullSmoothing");
   }
   // Subscriptions for sensors
   stim_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
@@ -378,7 +384,7 @@ void StateEstimator::KeyframeTimerCallback(){
     // Predict the next state using the preintegrated measurements AND add the imu factor to the graph.
     NavState predictes_imu_state = gtsam_graph_->addImuFactor();
 
-    NavState predicted_sbg_state = gtsam_graph_->addSbgFactor();
+    // NavState predicted_sbg_state = gtsam_graph_->addSbgFactor();
 
    
     // Add the DVL, GPS and Barometer factors to the graph.

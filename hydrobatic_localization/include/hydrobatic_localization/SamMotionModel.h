@@ -1,6 +1,8 @@
 #ifndef SAMMOTIONMODEL_H
 #define SAMMOTIONMODEL_H
-
+#ifndef HYDROBATIC_LOCALIZATION_HIDDEN
+# define HYDROBATIC_LOCALIZATION_HIDDEN __attribute__((visibility("default")))
+#endif
 #include <pybind11/embed.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
@@ -23,7 +25,7 @@ namespace py = pybind11;
  * @brief Wrapper class for the SAM motion model which uses pybind11,
  * a better solution might be to compile the casadi motion model to c code and use that.
  */
-class SamMotionModelWrapper {
+class HYDROBATIC_LOCALIZATION_HIDDEN SamMotionModelWrapper {
 
 public:
 

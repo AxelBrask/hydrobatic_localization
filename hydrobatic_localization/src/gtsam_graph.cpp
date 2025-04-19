@@ -19,16 +19,40 @@ GtsamGraph::GtsamGraph(InferenceStrategy strategy) : current_index_(0), inferenc
     params.relinearizeThreshold = 0.01;
     params.relinearizeSkip = 1;
     params.enablePartialRelinearizationCheck = true;
+        params.print("ISAM2");
+
     isam_ = std::make_shared<gtsam::ISAM2>(params);
   }
   else if(strategy == InferenceStrategy::FixedLagSmoothing){
     std::cout << "Using FixedLagSmoothing" << std::endl;
-    smootherLag = 10.0;
-    // gtsam::ISAM2Params params;
-    // params.relinearizeThreshold = 0.01;
-    // params.relinearizeSkip = 1;
-    fixed_lag_smoother_ = std::make_shared<gtsam::BatchFixedLagSmoother>(smootherLag);
+    gtsam::ISAM2Params params;
+    params.relinearizeThreshold = 0.01;
+    params.relinearizeSkip = 1;
+    params.findUnusedFactorSlots = true;
+    params.print("FixedLagSmoother");
 
+    smootherLag = 10.0;
+    fixed_lag_smoother_ = std::make_shared<gtsam::IncrementalFixedLagSmoother>(smootherLag, params);
+
+  }
+  else if (strategy == InferenceStrategy::EKF) {
+    std::cout << "Using EKF" << std::endl;
+    gtsam::ISAM2Params params;
+    params.relinearizeThreshold = 0.01;
+    params.relinearizeSkip = 1;
+    params.findUnusedFactorSlots = true;
+    smootherLag = 1.0;
+    params.print("EKF");
+    fixed_lag_smoother_ = std::make_shared<gtsam::IncrementalFixedLagSmoother>(smootherLag, params);
+
+  }
+
+  else if (strategy == InferenceStrategy::FullSmoothing) {
+    std::cout << "Using FullSmoothing" << std::endl;
+  }
+
+  else {
+    throw std::invalid_argument("Invalid inference strategy");
   }
 
 
@@ -48,13 +72,13 @@ void GtsamGraph::initGraphAndState(const Rot3& initial_rot, const Point3& initia
   graph_.addPrior<Pose3>(X(0), prior_pose, pose_noise);
   graph_.addPrior<Vector3>(V(0), prior_velocity, velocity_noise);
   graph_.addPrior<imuBias::ConstantBias>(B(0), prior_imu_bias, bias_noise);
-  graph_.addPrior<imuBias::ConstantBias>(B2(0), prior_sbg_bias, bias_noise); 
+  // graph_.addPrior<imuBias::ConstantBias>(B2(0), prior_sbg_bias, bias_noise); 
 
   // Insert initial estimates
   initial_estimate_.insert(X(0), prior_pose);
   initial_estimate_.insert(V(0), prior_velocity);
   initial_estimate_.insert(B(0), prior_imu_bias);
-  initial_estimate_.insert(B2(0), prior_sbg_bias);
+  // initial_estimate_.insert(B2(0), prior_sbg_bias);
 
   // Save the initial state.
   previous_state_ = NavState(prior_pose, prior_velocity);
@@ -89,9 +113,7 @@ NavState GtsamGraph::addImuFactor() {
   initial_estimate_.insert(X(current_index_+1), predicted_state.pose());
   initial_estimate_.insert(V(current_index_+1), predicted_state.v());
   initial_estimate_.insert(B(current_index_+1), current_imu_bias_);
-  smoother_timestamp_map_[X(current_index_+1)] = time_stamp_;
-  smoother_timestamp_map_[V(current_index_+1)] = time_stamp_;
-  smoother_timestamp_map_[B(current_index_+1)] = time_stamp_;
+
 
   // Update the current index.
   // current_index_ = next_index; 
@@ -114,7 +136,7 @@ NavState GtsamGraph::addSbgFactor() {
   // initial_estimate_.insert(X(current_index_+1), predicted_state.pose());
   // initial_estimate_.insert(V(current_index_+1), predicted_state.v());
   initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
-  smoother_timestamp_map_[B2(current_index_+1)] = time_stamp_;
+
   return predicted_state;
     }
 
@@ -145,6 +167,7 @@ void GtsamGraph::addGpsFactor(const Point3& gps_point) {
   graph_.add(GPSFactorArm(X(current_index_+1), gps_point, base_to_gps_offset, gps_noise));
 }
 
+
 void GtsamGraph::addBarometerFactor(double depth_measurement) {
   auto barometer_noise = noiseModel::Diagonal::Sigmas((Vector(1) << 0.001).finished());
   Vector3 base_to_pressure_offset(-0.503, 0.025, 0.057);
@@ -152,14 +175,15 @@ void GtsamGraph::addBarometerFactor(double depth_measurement) {
 }
 
 void GtsamGraph::optimize() {
+  current_index_++;
+
+
   if(inference_strategy_ ==InferenceStrategy::FullSmoothing){
     std::cout << "Full Smoothing optmizer" << std::endl;
     // optimizeFullSmoothing();
 
-  current_index_++;
   LevenbergMarquardtParams params;
   // params.setVerbosity("ERROR");
-  auto t1 = std::chrono::high_resolution_clock::now();
   LevenbergMarquardtOptimizer optimizer(graph_, initial_estimate_, params);
   Values result = optimizer.optimize();
   // result.print("Final Result:\n");
@@ -171,27 +195,40 @@ void GtsamGraph::optimize() {
   imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
   sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
   }
-  else if(inference_strategy_ == InferenceStrategy::-){
+  else if(inference_strategy_ == InferenceStrategy::FixedLagSmoothing || inference_strategy_ == InferenceStrategy::EKF){
+      double t = static_cast<double>(current_index_);
+      std::cout<< "timestamp: " << t << std::endl;
+      for (auto const& kv : initial_estimate_) {
+      smoother_timestamp_map_[kv.key] = t;
+    }
     std::cout << "Fixed Lag Smoothing optmizer" << std::endl;
-    current_index_++;
+    
     fixed_lag_smoother_->update(graph_, initial_estimate_,smoother_timestamp_map_);
+        for (auto it = smoother_timestamp_map_.begin(); it != smoother_timestamp_map_.end();) {
+      if (it->second < t - smootherLag)
+        it = smoother_timestamp_map_.erase(it);
+      else
+        ++it;
+    }
     Values result = fixed_lag_smoother_->calculateEstimate();
     current_imu_bias_ = result.at<imuBias::ConstantBias>(B(current_index_));
-    current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_));
+    // current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_));
     previous_state_ = NavState(result.at<Pose3>(X(current_index_)), result.at<Vector3>(V(current_index_)));
     //log the current size of the graph
-    std::cout<< "Graph size: " << graph_.size() << std::endl;
+    std::cout << "# factors kept by smoother: "
+              << fixed_lag_smoother_->getFactors().size() << '\n';
+    std::cout << "# variables in window    : "
+              << fixed_lag_smoother_->getISAM2().getLinearizationPoint().size() << '\n';
     graph_.resize(0);
-    smoother_timestamp_map_.clear();
+    // smoother_timestamp_map_.clear();
     initial_estimate_.clear();
     imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
     sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
-  }
+  } 
 
 
   else if(inference_strategy_ == InferenceStrategy::ISAM2){
     std::cout << "ISAM2 optmizer" << std::endl;
-    current_index_++,
     isam_->update(graph_, initial_estimate_);
 
     Values result = isam_->calculateEstimate();

@@ -42,7 +42,8 @@ Vector DvlFactor::evaluateError(const Pose3 &pose, const Vector3 &estimated_velo
         // Create a 3x6 zero matrix (accelerometer and gyro bias)
         Eigen::Matrix<double, 3, 6> H3_mat = Eigen::Matrix<double, 3, 6>::Zero();
         // Fill in the last 3 columns with the jacobian with repsect to gyro bias
-        H3_mat.block<3,3>(0,3) = skewSymmetric(base_to_dvl_offset_) * base_link_dvl_rotations_.matrix();
+        H3_mat.block<3,3>(0,3) = base_link_dvl_rotations_.matrix() * skewSymmetric(base_to_dvl_offset_);
+//skewSymmetric(base_to_dvl_offset_) * base_link_dvl_rotations_.matrix();
         *H3 = H3_mat;
     }
   return (Vector(error));

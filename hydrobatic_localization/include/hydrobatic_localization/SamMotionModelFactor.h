@@ -40,7 +40,7 @@ class PreintegratedMotionModel
    * @brief Constructor for the PreintegratedMotionModel
    * @param dt: time step for the motion model
    */
-  PreintegratedMotionModel(double dt): dt_(dt) ,sam_motion_model_(std::shared_ptr<SamMotionModelWrapper>(new SamMotionModelWrapper(dt))) {
+  PreintegratedMotionModel(double dt): sam_motion_model_(std::shared_ptr<SamMotionModelWrapper>(new SamMotionModelWrapper(dt))), dt_(dt) { 
     prev_control_.u = Eigen::VectorXd::Zero(6);
   }
   /**
@@ -115,9 +115,10 @@ class PreintegratedMotionModel
 
 class SamMotionModelFactor : public NoiseModelFactor4<Pose3, Pose3, Vector3,Vector3> {
  private:
-  const PreintegratedMotionModel PPM_;
+
   double start_time_;
   double end_time_;
+  const PreintegratedMotionModel PPM_;
   Vector3 gyro_;
  public:
   using Base = NoiseModelFactor4<Pose3, Pose3, Vector3, Vector3>; //might need to include the bias for the gyro

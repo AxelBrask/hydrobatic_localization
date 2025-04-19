@@ -21,6 +21,7 @@
 #include <vector>
 #include <gtsam/nonlinear/ISAM2.h>
 #include <gtsam/nonlinear/BatchFixedLagSmoother.h>
+#include <gtsam/nonlinear/IncrementalFixedLagSmoother.h>
 
 using namespace gtsam;
 using symbol_shorthand::X; // Pose
@@ -29,7 +30,8 @@ using symbol_shorthand::B; // Bias
 enum class InferenceStrategy {
     FullSmoothing,
     FixedLagSmoothing,
-    ISAM2
+    ISAM2,
+    EKF
 };
 //Defining shorthand for sbg bias
 namespace gtsam {
@@ -154,12 +156,11 @@ private:
   imuBias::ConstantBias current_imu_bias_;
   imuBias::ConstantBias current_sbg_bias_;
   double time_stamp_;
-
   //ISAM2
   std::shared_ptr<gtsam::ISAM2> isam_;
   InferenceStrategy inference_strategy_;
   // FixedLagSmoothing
-  std::shared_ptr<gtsam::BatchFixedLagSmoother> fixed_lag_smoother_;
+  std::shared_ptr<gtsam::IncrementalFixedLagSmoother> fixed_lag_smoother_;
   FixedLagSmootherKeyTimestampMap smoother_timestamp_map_;
   double smootherLag; 
     // Preintegrated IMU measurements (GTSAM)
