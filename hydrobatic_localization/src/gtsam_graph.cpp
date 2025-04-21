@@ -162,14 +162,14 @@ void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro) 
 }
 
 void GtsamGraph::addGpsFactor(const Point3& gps_point) {
-  auto gps_noise = noiseModel::Diagonal::Sigmas((Vector(3) << 10.0, 10.0, 10.0).finished());
+  auto gps_noise = noiseModel::Diagonal::Sigmas((Vector(3) << 0.1, 0.1, 0.1).finished());
   Point3 base_to_gps_offset(0.528 ,0.0, 0.071);
   graph_.add(GPSFactorArm(X(current_index_+1), gps_point, base_to_gps_offset, gps_noise));
 }
 
 
 void GtsamGraph::addBarometerFactor(double depth_measurement) {
-  auto barometer_noise = noiseModel::Diagonal::Sigmas((Vector(1) << 0.001).finished());
+  auto barometer_noise = noiseModel::Diagonal::Sigmas((Vector(1) << 0.01).finished());
   Vector3 base_to_pressure_offset(-0.503, 0.025, 0.057);
   graph_.add(BarometerFactor(X(current_index_+1), depth_measurement, base_to_pressure_offset, barometer_noise));
 }

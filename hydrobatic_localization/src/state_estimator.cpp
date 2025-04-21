@@ -48,7 +48,7 @@ StateEstimator::StateEstimator()
       std::bind(&StateEstimator::dvl_callback, this, std::placeholders::_1));
 
   barometer_sub_ = this->create_subscription<sensor_msgs::msg::FluidPressure>(
-      sam_msgs::msg::Topics::DEPTH_TOPIC, 10,
+      sam_msgs::msg::Topics::PRESS_DEPTH300_TOPIC, 10,
       std::bind(&StateEstimator::barometer_callback, this, std::placeholders::_1));
 
   gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
@@ -69,7 +69,7 @@ StateEstimator::StateEstimator()
 
   sync_ = std::make_shared<Sync>(SyncPolicy(10), thruster1_sub_, thruster2_sub_,
                                  lcg_sub_, vbs_sub_);
-
+  sync_->setAgePenalty(0.5);
   sync_->registerCallback(std::bind(&StateEstimator::control_input_callback, this,
                           std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3, std::placeholders::_4));
@@ -95,6 +95,7 @@ StateEstimator::StateEstimator()
 }
 
 void StateEstimator::ThrusterVectorCallback(const sam_msgs::msg::ThrusterAngles::SharedPtr msg){
+  RCLCPP_INFO(this->get_logger(),"Inside thrustervector callback");
   Eigen::VectorXd u(2);
   u << msg->thruster_vertical_radians, msg->thruster_horizontal_radians;
   rclcpp::Time time(msg->header.stamp);
@@ -106,7 +107,7 @@ void StateEstimator::control_input_callback(const smarc_msgs::msg::ThrusterFeedb
                                             const smarc_msgs::msg::ThrusterFeedback::ConstSharedPtr thruster2,
                                             const smarc_msgs::msg::PercentStamped::ConstSharedPtr lcg,
                                             const smarc_msgs::msg::PercentStamped::ConstSharedPtr vbs) {
-
+                                              RCLCPP_INFO(this->get_logger(),"Inside control FB callback");
   if(is_graph_initialized_){
     // Eigen::VectorXd u(6);
     // u << lcg->value, vbs->value, latest_thruster_vector_.thruster_vertical_radians, latest_thruster_vector_.thruster_horizontal_radians, thruster1->rpm.rpm, thruster2->rpm.rpm;
@@ -123,7 +124,6 @@ void StateEstimator::control_input_callback(const smarc_msgs::msg::ThrusterFeedb
 
 
 void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg) {
-  RCLCPP_INFO(this->get_logger(),"Inside IMU callback");
   Vector3 acc(msg->linear_acceleration.x,
               msg->linear_acceleration.y,
               msg->linear_acceleration.z);
@@ -139,7 +139,7 @@ void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg) {
     number_of_imu_measurements++;
   }
 
-  double delta_t = 1.0 / 100.0;
+  double delta_t = 1.0 / 125.0;
   gtsam_graph_->integrateImuMeasurement(acc, gyro, delta_t);
   
  }
@@ -173,7 +173,6 @@ void StateEstimator::dvl_callback(const smarc_msgs::msg::DVL::SharedPtr msg) {
 
 
 void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::SharedPtr msg) {
-  RCLCPP_INFO(this->get_logger(),"Inside BARO callback");
   double measured_pressure = msg->fluid_pressure;
   double depth = -(measured_pressure - atmospheric_pressure_) / 9806.65; //Down negative
 
@@ -200,11 +199,9 @@ void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::S
 
 
 void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr msg) {
-  RCLCPP_INFO(this->get_logger(),"Inside GPScallback");
   double utm_x, utm_y, utm_z;
   // if sim time is used, take the ground truth as gps reading
-  if(this->get_parameter("use_sim_time").as_bool()==true){
-      RCLCPP_INFO(this->get_logger(),"Inside TF GPS");
+  if(this->get_parameter("use_sim_time").as_bool()){
 
     try{
       transformStamped = tf_buffer_.lookupTransform("utm_34_V",sam_msgs::msg::Links::GPS_LINK,
@@ -221,7 +218,6 @@ void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr m
   }
   // if not using the sim, take the real gps reading
   else {
-    RCLCPP_INFO(this->get_logger(),"Inside GPS forward");
     int utm_zone;
     bool northp;
     GeographicLib::UTMUPS::Forward(msg->latitude, msg->longitude, utm_zone, northp, utm_x, utm_y);
@@ -311,9 +307,11 @@ void StateEstimator::KeyframeTimerCallback(){
   auto t1 = std::chrono::high_resolution_clock::now();
     if(number_of_imu_measurements < 6){
       return;
-      }
-
-    if (!is_graph_initialized_ && map_initialized_) {
+      }    
+      if (!map_initialized_) {
+    return;
+  }
+    if (!is_graph_initialized_) {
         // Initialize the odom frame from map
         Point3 base_to_gps_offset(0.528 ,0.0, 0.071);
         geometry_msgs::msg::TransformStamped odom_transform;
@@ -339,7 +337,7 @@ void StateEstimator::KeyframeTimerCallback(){
         geometry_msgs::msg::TransformStamped init_transform;
         init_transform.header.stamp = this->get_clock()->now();
         init_transform.header.frame_id = sam_msgs::msg::Links::ODOM_LINK;
-        init_transform.child_frame_id = sam_msgs::msg::Links::BASE_LINK;
+        init_transform.child_frame_id = this->get_namespace()+"/"+sam_msgs::msg::Links::BASE_LINK;
         init_transform.transform.translation.x = initial_position.x();
         init_transform.transform.translation.y = initial_position.y();
         init_transform.transform.translation.z = initial_position.z();
@@ -365,7 +363,9 @@ void StateEstimator::KeyframeTimerCallback(){
     if(using_motion_model_){
       NavState state = NavState(previous_state_.pose(), previous_state_.velocity());
 
+
       NavState new_state = pmm->predict(state, gyro, last_time_, current_time);
+      RCLCPP_INFO(this->get_logger(), "Motion Model Prediction [%f,%f,%f]", new_state.pose().translation().x(),new_state.pose().translation().y(),new_state.pose().translation().z());
       gtsam_graph_->addMotionModelFactor(last_time_,current_time,pmm,gyro);
 
       last_time_ = current_time;
@@ -389,7 +389,7 @@ void StateEstimator::KeyframeTimerCallback(){
     }
     // Predict the next state using the preintegrated measurements AND add the imu factor to the graph.
     NavState predictes_imu_state = gtsam_graph_->addImuFactor();
-
+    RCLCPP_INFO(this->get_logger(), "IMU Prediction [%f,%f,%f]", predictes_imu_state.pose().translation().x(),predictes_imu_state.pose().translation().y(),predictes_imu_state.pose().translation().z());
     // NavState predicted_sbg_state = gtsam_graph_->addSbgFactor();
 
    
@@ -444,7 +444,7 @@ void StateEstimator::KeyframeTimerCallback(){
     geometry_msgs::msg::TransformStamped out_transform;
     out_transform.header.stamp = this->get_clock()->now();
     out_transform.header.frame_id = sam_msgs::msg::Links::ODOM_LINK;
-    out_transform.child_frame_id = sam_msgs::msg::Links::BASE_LINK;
+    out_transform.child_frame_id = this->get_namespace()+"/"+sam_msgs::msg::Links::BASE_LINK;
     Point3 estimated_translation = previous_state_.pose().translation();
     Rot3 estimated_rotation = previous_state_.pose().rotation();
     out_transform.transform.translation.x = estimated_translation.x();
