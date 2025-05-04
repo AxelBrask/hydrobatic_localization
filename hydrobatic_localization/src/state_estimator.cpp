@@ -34,23 +34,23 @@ StateEstimator::StateEstimator()
   else {
     throw std::invalid_argument("Invalid inference strategy, choose between ISAM2, FixedLagSmoothing, EKF or FullSmoothing");
   }
-  // Subscriptions for sensors
+  // // Subscriptions for sensors
   stim_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
       sam_msgs::msg::Topics::STIM_IMU_TOPIC, 10,
       std::bind(&StateEstimator::imu_callback, this, std::placeholders::_1));
 
-  sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
-      sam_msgs::msg::Topics::SBG_IMU_TOPIC, 10,
-      std::bind(&StateEstimator::sbg_callback, this, std::placeholders::_1));
-
-  dvl_sub_ = this->create_subscription<smarc_msgs::msg::DVL>(
-      sam_msgs::msg::Topics::DVL_TOPIC, 10,
-      std::bind(&StateEstimator::dvl_callback, this, std::placeholders::_1));
-
-  barometer_sub_ = this->create_subscription<sensor_msgs::msg::FluidPressure>(
-      sam_msgs::msg::Topics::DEPTH_TOPIC, 10,
-      std::bind(&StateEstimator::barometer_callback, this, std::placeholders::_1));
-
+  // sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
+      // sam_msgs::msg::Topics::SBG_IMU_TOPIC, 10,
+      // std::bind(&StateEstimator::sbg_callback, this, std::placeholders::_1));
+// 
+  // dvl_sub_ = this->create_subscription<smarc_msgs::msg::DVL>(
+      // sam_msgs::msg::Topics::DVL_TOPIC, 10,
+      // std::bind(&StateEstimator::dvl_callback, this, std::placeholders::_1));
+// 
+  // barometer_sub_ = this->create_subscription<sensor_msgs::msg::FluidPressure>(
+      // sam_msgs::msg::Topics::DEPTH_TOPIC, 10,
+      // std::bind(&StateEstimator::barometer_callback, this, std::placeholders::_1));
+// 
   gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
       smarc_msgs::msg::Topics::GPS_TOPIC, 10,
       std::bind(&StateEstimator::gps_callback, this, std::placeholders::_1));
@@ -86,7 +86,7 @@ StateEstimator::StateEstimator()
       "estimated_pose", 10);
   // Timer for keyframe updates. This should be changed to a seperate thread
   KeyframeTimer = this->create_wall_timer(
-      std::chrono::milliseconds(100), std::bind(&StateEstimator::KeyframeTimerCallback, this));
+      std::chrono::milliseconds(300), std::bind(&StateEstimator::KeyframeTimerCallback, this));
 
   // Initialize the GtsamGraph with the chosen inference strategy
   gtsam_graph_ = std::make_unique<GtsamGraph>(inference_strategy);
@@ -96,6 +96,7 @@ StateEstimator::StateEstimator()
 }
 
 void StateEstimator::ThrusterVectorCallback(const sam_msgs::msg::ThrusterAngles::SharedPtr msg){
+  RCLCPP_INFO(this->get_logger(), "Thruster vector received");
   Eigen::VectorXd u(2);
   u << msg->thruster_vertical_radians, msg->thruster_horizontal_radians;
   rclcpp::Time time(msg->header.stamp);
@@ -109,6 +110,7 @@ void StateEstimator::control_input_callback(const smarc_msgs::msg::ThrusterFeedb
                                             const smarc_msgs::msg::PercentStamped::ConstSharedPtr vbs) {
 
   if(is_graph_initialized_){
+    RCLCPP_INFO(this->get_logger(), "Control input received");
     // Eigen::VectorXd u(6);
     // u << lcg->value, vbs->value, latest_thruster_vector_.thruster_vertical_radians, latest_thruster_vector_.thruster_horizontal_radians, thruster1->rpm.rpm, thruster2->rpm.rpm;
     Eigen::VectorXd u_test(4);
@@ -247,37 +249,38 @@ void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr m
                 "Broadcasted static map transform at local x: %f, y: %f, z: %f", 
                 utm_x, utm_y, utm_z);
     map_initialized_ = true;
+
     return;
  }
   // Compare the new gps message with the first one to get the offset, but we need it in the odom frame
-  if(is_graph_initialized_){
-    Point3 map_to_odom_offset;
-    Rot3 map_to_odom_rotation;
-    try{
-      transformStamped = tf_buffer_.lookupTransform("map", "odom",
-                                                      tf2::TimePointZero, std::chrono::seconds(1));
-      map_to_odom_offset = Point3(transformStamped.transform.translation.x,
-                                  transformStamped.transform.translation.y,
-                                  transformStamped.transform.translation.z);
-      map_to_odom_rotation = Rot3(transformStamped.transform.rotation.w,
-                                  transformStamped.transform.rotation.x,
-                                  transformStamped.transform.rotation.y,
-                                  transformStamped.transform.rotation.z);
+  // if(is_graph_initialized_){
+  //   Point3 map_to_odom_offset;
+  //   Rot3 map_to_odom_rotation;
+  //   try{
+  //     transformStamped = tf_buffer_.lookupTransform("map", "odom",
+  //                                                     tf2::TimePointZero, std::chrono::seconds(1));
+  //     map_to_odom_offset = Point3(transformStamped.transform.translation.x,
+  //                                 transformStamped.transform.translation.y,
+  //                                 transformStamped.transform.translation.z);
+  //     map_to_odom_rotation = Rot3(transformStamped.transform.rotation.w,
+  //                                 transformStamped.transform.rotation.x,
+  //                                 transformStamped.transform.rotation.y,
+  //                                 transformStamped.transform.rotation.z);
 
-    }
-    catch (tf2::TransformException &ex) {
-      RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
-      return;
-    }
-    // this assumes that map to odom is only a translation, this should be changed to a full transformation with the help of a compass for heading
-    double x = utm_x - first_utm_x - map_to_odom_offset.x();
-    double y = utm_y - first_utm_y - map_to_odom_offset.y();
-    double z = utm_z - first_utm_z - map_to_odom_offset.z();
-    latest_gps_point_ = Point3(x, y, z);
-    new_gps_measurement_ = true;
-    // Logg off the gps point of the gps in the odom frame
-    RCLCPP_DEBUG(this->get_logger(), "GPS Point: [%f, %f, %f]", latest_gps_point_.x(), latest_gps_point_.y(), latest_gps_point_.z());
-  }
+  //   }
+  //   catch (tf2::TransformException &ex) {
+  //     RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
+  //     return;
+  //   }
+  //   // this assumes that map to odom is only a translation, this should be changed to a full transformation with the help of a compass for heading
+  //   double x = utm_x - first_utm_x - map_to_odom_offset.x();
+  //   double y = utm_y - first_utm_y - map_to_odom_offset.y();
+  //   double z = utm_z - first_utm_z - map_to_odom_offset.z();
+  //   latest_gps_point_ = Point3(x, y, z);
+  //   new_gps_measurement_ = true;
+  //   // Logg off the gps point of the gps in the odom frame
+  //   RCLCPP_DEBUG(this->get_logger(), "GPS Point: [%f, %f, %f]", latest_gps_point_.x(), latest_gps_point_.y(), latest_gps_point_.z());
+  // }
  
 }  
 
@@ -306,8 +309,10 @@ void StateEstimator::KeyframeTimerCallback(){
     if(number_of_imu_measurements < 6){
       return;
       }
-
-    if (!is_graph_initialized_ && map_initialized_) {
+    if(!map_initialized_){
+      return;
+    }
+    if (!is_graph_initialized_) {
         // Initialize the odom frame from map
         Point3 base_to_gps_offset(0.528 ,0.0, 0.071);
         geometry_msgs::msg::TransformStamped odom_transform;
@@ -346,6 +351,7 @@ void StateEstimator::KeyframeTimerCallback(){
 
         // Initialize the GTSAM graph and state.
         gtsam_graph_->initGraphAndState(average_rotation, initial_position);
+        RCLCPP_INFO(this->get_logger(),"Graph initialized !!!");
         previous_state_ = gtsam_graph_->getCurrentState();
         is_graph_initialized_ = true;
         current_time = this->get_clock()->now().seconds();
@@ -355,35 +361,34 @@ void StateEstimator::KeyframeTimerCallback(){
       
     }
 
-
     if(using_motion_model_){
       NavState state = NavState(previous_state_.pose(), previous_state_.velocity());
 
       NavState new_state = pmm->predict(state, gyro, last_time_, current_time);
-      gtsam_graph_->addMotionModelFactor(last_time_,current_time,pmm,gyro);
+      gtsam_graph_->addMotionModelFactor(last_time_,current_time,pmm,gyro,new_state);
 
       last_time_ = current_time;
-    // nav_msgs::msg::Odometry motion_model_odom;
-    // motion_model_odom.header.stamp = this->get_clock()->now();
-    // motion_model_odom.header.frame_id = "odom";
-    // motion_model_odom.child_frame_id = "base_link";
+    nav_msgs::msg::Odometry motion_model_odom;
+    motion_model_odom.header.stamp = this->get_clock()->now();
+    motion_model_odom.header.frame_id = "odom";
+    motion_model_odom.child_frame_id = "base_link";
 
-    // motion_model_odom.pose.pose.position.x = new_state.pose().translation().x();
-    // motion_model_odom.pose.pose.position.y = new_state.pose().translation().y();
-    // motion_model_odom.pose.pose.position.z = new_state.pose().translation().z();
-    // Quaternion quat = new_state.pose().rotation().toQuaternion();
-    // motion_model_odom.pose.pose.orientation.x = quat.x();
-    // motion_model_odom.pose.pose.orientation.y = quat.y();
-    // motion_model_odom.pose.pose.orientation.z = quat.z();
-    // motion_model_odom.pose.pose.orientation.w = quat.w();
-    // motion_model_odom.twist.twist.linear.x = new_state.velocity().x();
-    // motion_model_odom.twist.twist.linear.y = new_state.velocity().y();
-    // motion_model_odom.twist.twist.linear.z = new_state.velocity().z();
-    // motion_model_odom_->publish(motion_model_odom);
+    motion_model_odom.pose.pose.position.x = new_state.pose().translation().x();
+    motion_model_odom.pose.pose.position.y = new_state.pose().translation().y();
+    motion_model_odom.pose.pose.position.z = new_state.pose().translation().z();
+    Quaternion quat = new_state.pose().rotation().toQuaternion();
+    motion_model_odom.pose.pose.orientation.x = quat.x();
+    motion_model_odom.pose.pose.orientation.y = quat.y();
+    motion_model_odom.pose.pose.orientation.z = quat.z();
+    motion_model_odom.pose.pose.orientation.w = quat.w();
+    motion_model_odom.twist.twist.linear.x = new_state.velocity().x();
+    motion_model_odom.twist.twist.linear.y = new_state.velocity().y();
+    motion_model_odom.twist.twist.linear.z = new_state.velocity().z();
+    motion_model_odom_->publish(motion_model_odom);
     }
     // Predict the next state using the preintegrated measurements AND add the imu factor to the graph.
-    NavState predictes_imu_state = gtsam_graph_->addImuFactor();
-
+    // NavState predictes_imu_state = gtsam_graph_->addImuFactor();
+// 
     // NavState predicted_sbg_state = gtsam_graph_->addSbgFactor();
 
    
@@ -433,6 +438,9 @@ void StateEstimator::KeyframeTimerCallback(){
     estimated_pose.pose.pose.orientation.y = quat.y();
     estimated_pose.pose.pose.orientation.z = quat.z();
     estimated_pose.pose.pose.orientation.w = quat.w();
+    estimated_pose.twist.twist.linear.x = previous_state_.velocity().x();
+    estimated_pose.twist.twist.linear.y = previous_state_.velocity().y();
+    estimated_pose.twist.twist.linear.z = previous_state_.velocity().z();
     pose_pub_->publish(estimated_pose);
     // Broadcast estimated pose.
     geometry_msgs::msg::TransformStamped out_transform;

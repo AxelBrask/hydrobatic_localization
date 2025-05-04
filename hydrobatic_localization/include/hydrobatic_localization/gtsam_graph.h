@@ -77,7 +77,7 @@ public:
    * @param pmm: the preintegrated motion model as a shard_ptr
    * @param gyro: the angular velocity measurement from the IMU
    */
-  void addMotionModelFactor(const double start_time, const double end_time, const std::shared_ptr<const PreintegratedMotionModel>& pmm, const Vector3& gyro);
+  void addMotionModelFactor(const double start_time, const double end_time, const std::shared_ptr<const PreintegratedMotionModel>& pmm, const Vector3& gyro, NavState& new_state);
 
   /**
    * @brief Add a DVL factor to the factor graph

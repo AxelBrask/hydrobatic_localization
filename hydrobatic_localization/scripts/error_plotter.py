@@ -1,56 +1,92 @@
+import pathlib
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-
+import itertools
+try:
+    from IPython.display import display
+except ImportError:
+    def display(x): print(x)
 sns.set_style("darkgrid")
 
+log_dir   = pathlib.Path("temp") 
+log_paths = sorted(log_dir.glob("*.csv")) 
+#static
+#turn back and frouth
+#pitch
+runs = []
+for p in log_paths:
+    run_name = p.stem                      
+    df = pd.read_csv(p)
+    df.columns = df.columns.str.strip()
 
-df = pd.read_csv("state_estimator_log.csv")
+    df["error_x"] = df["est_pos_x"] - df["gt_pos_x"]
+    df["error_y"] = df["est_pos_y"] - df["gt_pos_y"]
+    df["error_z"] = df["est_pos_z"] - df["gt_pos_z"]
+    df["error_total"] = np.sqrt(df["error_x"]**2 + df["error_y"]**2 + df["error_z"]**2)
 
-print(df.head())
-df.columns = df.columns.str.strip()
-print(df.columns.tolist())
-df['error_x'] = df['est_pos_x'] - df['gt_pos_x']
-df['error_y'] = df['est_pos_y'] - df['gt_pos_y']
-df['error_z'] = df['est_pos_z'] - df['gt_pos_z']
+    df["run"] = run_name                  
+    runs.append(df)
 
-# If you want to compute a composite error (e.g., Euclidean distance error)
-df['error_total'] = (df['error_x']**2 + df['error_y']**2 + df['error_z']**2).apply(lambda x: x**0.5)
+big = pd.concat(runs, ignore_index=True)
 
-# Display basic statistics for error columns.
-print(df[['error_x', 'error_y', 'error_z', 'error_total']].describe())
+display(big.groupby("run")[["error_x", "error_y", "error_z", "error_total"]].describe().round(3))
 
 
-# Create a line plot of errors over time
+axis_colours = dict(zip(["error_x", "error_y", "error_z"],
+                        sns.color_palette("tab10", 3)))
+
+run_styles = itertools.cycle([
+    dict(ls="-",  lw=2.5),    
+    dict(ls="--", lw=2.0),    
+    dict(ls="-.", lw=1.8),   
+    dict(ls=":",  lw=1.8),   
+])
+
 plt.figure(figsize=(12, 6))
-plt.plot(df['time'], df['error_x'], label='Error X', linewidth=2)
-plt.plot(df['time'], df['error_y'], label='Error Y', linewidth=2)
-plt.plot(df['time'], df['error_z'], label='Error Z', linewidth=2)
-plt.xlabel('Time (s)', fontsize=12)
-plt.ylabel('Error (m)', fontsize=12)
-plt.title('State Estimator Errors Over Time', fontsize=14)
-plt.legend(loc='upper right', fontsize=10)
+
+for run, g in big.groupby("run"):
+    style = next(run_styles)           # grab the next visual style
+    for axis in ["error_x", "error_y", "error_z"]:
+        plt.plot(
+            g["time"],
+            g[axis],
+            label=f"{run} – {axis.split('_')[1]}",   # → “ISAM – x”, “EKF – y”, …
+            color=axis_colours[axis],                # colour encodes x/y/z
+            **style,                                 # linestyle & linewidth encode run
+            alpha=0.9,
+        )
+
+plt.xlabel("Time [s]")
+plt.ylabel("Error [m]")
+plt.title("State‑estimator error per axis")
+plt.legend(ncol=3, fontsize=8)
 plt.tight_layout()
-plt.show()# Create a plot for the trajectories in the XY plane
-plt.figure(figsize=(10, 8))
-##plot dvl and estimated vleocitu when doing hydrobatic manuvers
+plt.show()
 
-# Plot the estimated trajectory: X vs. Y
-plt.plot(df['est_pos_x'], df['est_pos_y'], label='Estimated Trajectory',
-         marker='o', markersize=3, linestyle='-', linewidth=1, alpha=0.8)
 
-# Plot the ground truth trajectory: X vs. Y
-plt.plot(df['gt_pos_x'], df['gt_pos_y'], label='Ground Truth Trajectory',
-         marker='x', markersize=3, linestyle='--', linewidth=1, alpha=0.8)
+# 5.  Plot the XY trajectories --------------------------------------------------
+plt.figure(figsize=(8, 8))
 
-# Adding labels and title
-plt.xlabel("X Position (m)", fontsize=12)
-plt.ylabel("Y Position (m)", fontsize=12)
-plt.title("Trajectory Comparison in XY Plane", fontsize=14)
-plt.legend(fontsize=10)
-plt.grid(True)
+# plot *one* ground‑truth trajectory (all files share it, so pick the first)
+plt.plot(runs[0]["gt_pos_x"], runs[0]["gt_pos_y"],
+         c="black", lw=2, ls="-.", label="Ground truth")
+
+# overlay every estimator trajectory
+for run, g in big.groupby("run"):
+    plt.plot(g["est_pos_x"], g["est_pos_y"],
+             lw=1.5, label=f"{run} – est")
+
+plt.xlabel("X [m]"); plt.ylabel("Y [m]")
+plt.title("XY‑plane trajectory comparison")
+plt.legend(fontsize=8); plt.axis("equal"); plt.tight_layout(); plt.show()
+
+
+plt.figure(figsize=(8, 6))
+sns.boxplot(data=big, x="run", y="error_total", fliersize=1)
+plt.xlabel("Run")
+plt.ylabel("Total |position error| [m]")
+plt.title("Absolute position‑error distribution per run")
 plt.tight_layout()
-
-# Display the plot
 plt.show()

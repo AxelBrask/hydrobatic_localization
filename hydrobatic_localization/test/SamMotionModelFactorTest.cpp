@@ -107,9 +107,71 @@ TEST(Conversion, StateToVectorAndBack) {
   EXPECT(assert_equal(state_original.velocity(), 
                         state_converted.velocity(), 1e-6));
 
-  // Check the NED pose and body frame velocity.
-  Vector3 base_vel = stateVec.segment<3>(7);
-  Vector3 expected_base_vel = state_original.pose().rotation().transpose().matrix() * state_original.velocity();
+  
+  // Check the ENU velocities
+  Vector3 base_vel = state_converted.velocity();
+  Vector3 expected_base_vel =  state_original.velocity();
   EXPECT(assert_equal(expected_base_vel, base_vel, 1e-6));
 
 }
+
+
+TEST(ENUToNED,StateToVector) {
+  //NavState with 90 degree counter counterclockwise rotation aorund z
+  Rot3 rotation = Rot3::RzRyRx(0.0, 0.0, M_PI_2);
+  Point3 translation(1.0, 2.0, 3.0);
+  Pose3 pose(rotation, translation);
+  Vector3 velocity(0.5, -0.2, 0.1);
+  NavState state(pose, velocity);
+  Vector3 gyro(0.0, 0.0, 0.0);
+  PreintegratedMotionModel pmm(0.01);
+  // Convert the state to a vector
+  Eigen::VectorXd stateVec = pmm.stateToVector(state, gyro);
+  //check NED translation
+  EXPECT(assert_equal(Vector3(2.0,1.0,-3.0), Vector3(stateVec.head<3>()), 1e-6));
+  //Check orientation
+  Eigen::Quaterniond q(stateVec(3), stateVec(4), stateVec(5), stateVec(6));
+  Eigen::Matrix3d T;
+  T << 0, 1,  0,
+       1, 0,  0,
+       0, 0, -1;
+  Eigen::Matrix3d expectedR = T * rotation.matrix();
+  EXPECT(assert_equal(expectedR, q.toRotationMatrix(), 1e-6));
+  //Check velocity in NED body
+  Vector3 velocity_ned = stateVec.segment<3>(7);
+  Vector3 expected_velocity_ned = Vector3(-0.2, 0.5, -0.1);
+  EXPECT(assert_equal(expected_velocity_ned, velocity_ned, 1e-6));
+}
+
+TEST(NEDToENU, VectorToState) {
+  Eigen::Matrix3d T;
+  T << 0, 1,  0,
+       1, 0,  0,
+       0, 0, -1;
+  Rot3 R = Rot3::RzRyRx(0.0, 0.0, M_PI_2);
+  Eigen::Matrix3d rot  = T*R.matrix();
+  Rot3 rotation(rot);
+  Point3 translation(2.0,1.0,-3.0);
+  Vector3 velocity(-0.2, 0.5, -0.1);
+  Pose3 pose(rotation, translation);
+  NavState state(pose, velocity);
+  PreintegratedMotionModel pmm(0.01);
+  Eigen::VectorXd stateVec(10);
+  stateVec << translation.x(), translation.y(), translation.z(),
+              rotation.toQuaternion().w(), rotation.toQuaternion().x(),
+              rotation.toQuaternion().y(), rotation.toQuaternion().z(),
+              velocity.x(), velocity.y(), velocity.z();
+  NavState ENU_state = pmm.vectorToState(stateVec, state);
+  //Check ENU translation
+  EXPECT(assert_equal(Vector3(1.0,2.0,3.0), ENU_state.pose().translation(), 1e-6));
+  //Check orientation
+  Eigen::Matrix3d expectedR = Rot3::RzRyRx(0.0, 0.0, M_PI_2).matrix();
+  EXPECT(assert_equal(expectedR, ENU_state.pose().rotation().matrix(), 1e-6));
+  //Check velocity in ENU body
+  Vector3 velocity_enu = ENU_state.velocity();
+  Vector3 expected_velocity_enu = Vector3(0.5, -0.2, 0.1);
+  EXPECT(assert_equal(expected_velocity_enu, velocity_enu, 1e-6));
+  
+}
+
+

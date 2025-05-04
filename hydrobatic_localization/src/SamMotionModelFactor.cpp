@@ -16,7 +16,7 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
           return state;
       }
 
-      // std::cout << "start time: " << start_time << ", end time: " << end_time << std::endl;
+      std::cout << "start time: " << start_time << ", end time: " << end_time << std::endl;
       //print the control list
       Eigen::VectorXd integratedState = vectorState;
       // std::cout << " Size of integrated state: " << integratedState.size() << std::endl;
@@ -28,17 +28,21 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
           double dt = control_list_[0].timestamp - currentTime;
           integratedState = sam_motion_model_->integrateState(integratedState, prev_control_.u, dt);
           currentTime = control_list_[0].timestamp;
+          std::cout << "Integrating from start_time to first control input" << std::endl;
+          std::cout << "Control used: " << prev_control_.u.transpose() 
+                    << ", timestamp: " << prev_control_.timestamp << " dt: " << dt << std::endl;
+          // std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
 
       }
 
       // Integrate over the control sequence until reaching end_time.
       for (; idx < control_list_.size()-1 && control_list_[idx+1].timestamp <= end_time; idx++) {
-          // std::cout << "Integrating between control inputs" << std::endl;
+          std::cout << "Integrating between control inputs" << std::endl;
           double dt = control_list_[idx+1].timestamp - currentTime;
           integratedState = sam_motion_model_->integrateState(integratedState, control_list_[idx].u, dt);
           currentTime = control_list_[idx+1].timestamp;
-          // std::cout << "Control used: " << control_list_[idx].u.transpose() 
-                    // << ", timestamp: " << control_list_[idx].timestamp << " dt: " << dt << std::endl;
+          std::cout << "Control used: " << control_list_[idx].u.transpose() 
+                    << ", timestamp: " << control_list_[idx].timestamp << " dt: " << dt << std::endl;
           // std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
 
       }
@@ -46,12 +50,12 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
       // Integrate from the last control to end_time if necessary.
       double dt = end_time - control_list_[idx].timestamp;
       if (dt > 0) {
-          // std::cout << "Integrating from last control input to end_time" << std::endl;
+          std::cout << "Integrating from last control input to end_time" << std::endl;
           integratedState = sam_motion_model_->integrateState(integratedState, control_list_.back().u, dt);
-          // std::cout << "Control used: " << control_list_.back().u.transpose() 
-                    // << ", timestamp: " << control_list_.back().timestamp << " dt: " << dt << std::endl;
-                    // std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
-          // std::cout << "Final integrated state: " << integratedState.transpose() << std::endl;
+          std::cout << "Control used: " << control_list_.back().u.transpose() 
+                    << ", timestamp: " << control_list_.back().timestamp << " dt: " << dt << std::endl;
+                    std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
+          std::cout << "Final integrated state: " << integratedState.transpose() << std::endl;
       }
 
       // Convert the integrated state vector back to a NavState.
@@ -63,72 +67,78 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
 
 
 }
+Eigen::VectorXd PreintegratedMotionModel::stateToVector(
+    const gtsam::NavState& state,
+    const gtsam::Vector3 gyro) const
+{
+    Eigen::Matrix3d T;
+    T << 0, 1,  0,
+         1, 0,  0,
+         0, 0, -1;
+    Eigen::Matrix3d B ;
+    B << 1, 0, 0,
+         0, -1,  0,
+         0, 0,  -1;
 
-Eigen::VectorXd PreintegratedMotionModel::stateToVector(const gtsam::NavState& state, const gtsam::Vector3 gyro) const {
+    // ENU to NED translation
+    Eigen::Vector3d te = state.pose().translation();
+    Eigen::Vector3d tn = T * te;  // [ y_e, x_e, -z_e ]
 
-        // Translation and rotation this needs to be converted from ENU to NED
-        Eigen::Matrix3d R_e2n;       
-        R_e2n << 0, 1, 0,
-                1, 0, 0,
-                0, 0, -1;
-        
-        // Convert the translation: from ENU to Ned
-        Eigen::VectorXd t_enu = state.pose().translation();
-        Eigen::VectorXd t_ned(3);
-        t_ned << t_enu.y(), t_enu.x(), -t_enu.z();
-        
-        // Get the ENU rotation matrix from the nav state
-        Eigen::Matrix3d R_enu = state.pose().rotation().matrix();
-        // Convert it to NED by applying the transformation on both sides
-        Eigen::Matrix3d R_ned = R_e2n * R_enu * R_e2n.transpose();
-        // Convert the rotation matrix to a quaternion (in NED)
-        Eigen::Quaterniond q_ned(R_ned);
-        
-        Eigen::VectorXd eta(7);
-        eta << t_ned(0), t_ned(1), t_ned(2),
-        q_ned.w(), q_ned.x(), q_ned.y(), q_ned.z();
-        // Linear and angular velocity
-        Eigen::VectorXd nu(6);
-        //Velcoity in the base link frame
-        Eigen::VectorXd base_link_velocity = state.pose().rotation().transpose().matrix()*state.velocity();
-        nu << base_link_velocity.x(), base_link_velocity.y(), base_link_velocity.z(), gyro.x(), gyro.y(), gyro.z();
-        Eigen::VectorXd state_vector(eta.size() + nu.size());
-        state_vector << eta, nu;
-        return state_vector;
+    // ENU to NED orientation
+    Eigen::Matrix3d Re = state.pose().rotation().matrix();
+    Eigen::Matrix3d Rn = T * Re ;  
+    Eigen::Quaterniond qn(Rn);
+    qn.normalize();
+
+    Eigen::Vector3d v_b_enu = state.pose().rotation().matrix().transpose()
+                              * state.velocity();
+    Eigen::Vector3d un = B * v_b_enu; 
+
+    Eigen::Vector3d gn = B* gyro;
+
+    Eigen::VectorXd eta(7), nu(6), x(13);
+    eta << tn.x(), tn.y(), tn.z(),
+           qn.w(), qn.x(), qn.y(), qn.z();
+    nu  << un.x(), un.y(), un.z(),
+           gn.x(), gn.y(), gn.z();
+    x << eta, nu;
+    return x;
 }
 
-NavState PreintegratedMotionModel::vectorToState(const Eigen::VectorXd& state_vector, const NavState& pose1 ) const{
-  // Convert the translation and rotation from NED to ENU
-    Eigen::Matrix3d R_n2e;
-    R_n2e << 0, 1, 0,
-            1, 0, 0,
-            0, 0, -1;
+NavState PreintegratedMotionModel::vectorToState(
+    const Eigen::VectorXd& xv,
+    const NavState& /*unused*/) const
+{
+    Eigen::Matrix3d T;
+    T << 0, 1,  0,
+         1, 0,  0,
+         0, 0, -1;
+        Eigen::Matrix3d B ;
+    B << 1, 0, 0,
+         0, -1,  0,
+         0, 0,  -1;
+    //  NED state
+    Eigen::Vector3d tn    = xv.head<3>();
+    Eigen::Quaterniond qn(xv[3], xv[4], xv[5], xv[6]);
+    qn.normalize();
+    Eigen::Vector3d un    = xv.segment<3>(7);
 
-    // Convert the translation: from NED to ENU
-    Eigen::Vector3d t_ned = state_vector.head<3>();  
-    Eigen::Vector3d t_enu;
-    t_enu << t_ned(1), t_ned(0), -t_ned(2);
+    //  NED to ENU translation
+    Eigen::Vector3d te = T * tn;  // [ y_n, x_n, -z_n ]
 
-    // Get the NED rotation matrix from the nav state
-    Eigen::Quaterniond q_ned(state_vector(3), state_vector(4), state_vector(5), state_vector(6));
-    q_ned.normalize();  // Ensure the quaternion is normalized
+    // NED to ENU orientation 
+    Eigen::Matrix3d Rbn_n = qn.toRotationMatrix();
+    Eigen::Matrix3d Rbn_e = T * Rbn_n ;  
+    gtsam::Pose3 pose_e{ gtsam::Rot3(Rbn_e), gtsam::Point3(te) };
 
-    // Convert it to ENU by applying the transformation on both sides
-    Eigen::Matrix3d R_enu = R_n2e * q_ned.toRotationMatrix() * R_n2e.transpose();
-
-    // Convert the rotation matrix to a quaternion (in ENU)
-    Eigen::Quaterniond q_enu(R_enu);
-
-    // Linear velocity
-    Vector3 nu = state_vector.segment<3>(7);  
-    //rotate the linear velocity from base link frame to ENU
-    Vector3 world_velocity = pose1.rotation().matrix()*nu;
-    gtsam::Rot3 rot_enu = gtsam::Rot3(R_enu);  
-    gtsam::Point3 trans_enu(t_enu);         
-    // Create the NavState object
-    NavState state(Pose3(rot_enu, trans_enu), world_velocity);
-  return state;
+  //velocity in ENU
+    Eigen::Vector3d v_b_enu = B * un;          
+    Eigen::Vector3d ve      = Rbn_e * v_b_enu; 
+                                         
+    return NavState(pose_e, gtsam::Vector3(ve));
 }
+
+
 
 void PreintegratedMotionModel::controlToList(const Eigen::VectorXd& u, const double& timestamp, const bool& isThrusterVector) {
           // add the first input to the qeue
