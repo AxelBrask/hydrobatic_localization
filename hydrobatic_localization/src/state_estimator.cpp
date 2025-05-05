@@ -39,17 +39,17 @@ StateEstimator::StateEstimator()
       sam_msgs::msg::Topics::STIM_IMU_TOPIC, 10,
       std::bind(&StateEstimator::imu_callback, this, std::placeholders::_1));
 
-  // sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
-      // sam_msgs::msg::Topics::SBG_IMU_TOPIC, 10,
-      // std::bind(&StateEstimator::sbg_callback, this, std::placeholders::_1));
-// 
-  // dvl_sub_ = this->create_subscription<smarc_msgs::msg::DVL>(
-      // sam_msgs::msg::Topics::DVL_TOPIC, 10,
-      // std::bind(&StateEstimator::dvl_callback, this, std::placeholders::_1));
-// 
-  // barometer_sub_ = this->create_subscription<sensor_msgs::msg::FluidPressure>(
-      // sam_msgs::msg::Topics::DEPTH_TOPIC, 10,
-      // std::bind(&StateEstimator::barometer_callback, this, std::placeholders::_1));
+  sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
+      sam_msgs::msg::Topics::SBG_IMU_TOPIC, 10,
+      std::bind(&StateEstimator::sbg_callback, this, std::placeholders::_1));
+
+  dvl_sub_ = this->create_subscription<smarc_msgs::msg::DVL>(
+      sam_msgs::msg::Topics::DVL_TOPIC, 10,
+      std::bind(&StateEstimator::dvl_callback, this, std::placeholders::_1));
+
+  barometer_sub_ = this->create_subscription<sensor_msgs::msg::FluidPressure>(
+      sam_msgs::msg::Topics::DEPTH_TOPIC, 10,
+      std::bind(&StateEstimator::barometer_callback, this, std::placeholders::_1));
 // 
   gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
       smarc_msgs::msg::Topics::GPS_TOPIC, 10,
@@ -86,7 +86,7 @@ StateEstimator::StateEstimator()
       "estimated_pose", 10);
   // Timer for keyframe updates. This should be changed to a seperate thread
   KeyframeTimer = this->create_wall_timer(
-      std::chrono::milliseconds(300), std::bind(&StateEstimator::KeyframeTimerCallback, this));
+      std::chrono::milliseconds(100), std::bind(&StateEstimator::KeyframeTimerCallback, this));
 
   // Initialize the GtsamGraph with the chosen inference strategy
   gtsam_graph_ = std::make_unique<GtsamGraph>(inference_strategy);
@@ -96,7 +96,7 @@ StateEstimator::StateEstimator()
 }
 
 void StateEstimator::ThrusterVectorCallback(const sam_msgs::msg::ThrusterAngles::SharedPtr msg){
-  RCLCPP_INFO(this->get_logger(), "Thruster vector received");
+  // RCLCPP_INFO(this->get_logger(), "Thruster vector received");
   Eigen::VectorXd u(2);
   u << msg->thruster_vertical_radians, msg->thruster_horizontal_radians;
   rclcpp::Time time(msg->header.stamp);
@@ -110,7 +110,7 @@ void StateEstimator::control_input_callback(const smarc_msgs::msg::ThrusterFeedb
                                             const smarc_msgs::msg::PercentStamped::ConstSharedPtr vbs) {
 
   if(is_graph_initialized_){
-    RCLCPP_INFO(this->get_logger(), "Control input received");
+    // RCLCPP_INFO(this->get_logger(), "Control input received");
     // Eigen::VectorXd u(6);
     // u << lcg->value, vbs->value, latest_thruster_vector_.thruster_vertical_radians, latest_thruster_vector_.thruster_horizontal_radians, thruster1->rpm.rpm, thruster2->rpm.rpm;
     Eigen::VectorXd u_test(4);
@@ -387,9 +387,9 @@ void StateEstimator::KeyframeTimerCallback(){
     motion_model_odom_->publish(motion_model_odom);
     }
     // Predict the next state using the preintegrated measurements AND add the imu factor to the graph.
-    // NavState predictes_imu_state = gtsam_graph_->addImuFactor();
-// 
-    // NavState predicted_sbg_state = gtsam_graph_->addSbgFactor();
+    NavState predictes_imu_state = gtsam_graph_->addImuFactor();
+
+    NavState predicted_sbg_state = gtsam_graph_->addSbgFactor();
 
    
     // Add the DVL, GPS and Barometer factors to the graph.

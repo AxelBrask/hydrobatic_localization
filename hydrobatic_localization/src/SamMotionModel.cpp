@@ -36,10 +36,10 @@ Eigen::VectorXd SamMotionModelWrapper::integrateState(const Eigen::VectorXd& x, 
             std::cout<< " [Warning] dt_step is less than or equal to 0.0, breaking the loop." << std::endl;
             break;
         }
-
+        
         // Call the dynamics
         Eigen::VectorXd x_dot = Dynamics(new_state, control);
-
+        // std::cout << "[INFO] x_dot: "<< x_dot << std::endl;
         // Euler integration
         new_state = new_state + dt_step * x_dot;
 
@@ -49,6 +49,7 @@ Eigen::VectorXd SamMotionModelWrapper::integrateState(const Eigen::VectorXd& x, 
         new_state.segment(3, 4) = q;
 
         remaining_time -= dt_step;
+        
     }
 
 

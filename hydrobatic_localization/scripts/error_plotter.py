@@ -10,7 +10,7 @@ except ImportError:
     def display(x): print(x)
 sns.set_style("darkgrid")
 
-log_dir   = pathlib.Path("temp") 
+log_dir   = pathlib.Path("localizaton_logs") 
 log_paths = sorted(log_dir.glob("*.csv")) 
 #static
 #turn back and frouth
