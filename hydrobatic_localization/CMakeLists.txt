@@ -67,6 +67,9 @@ add_executable(logger src/loggerNode.cpp)
 ament_target_dependencies(logger
   rclcpp
   nav_msgs
+  tf2 
+  tf2_ros
+  tf2_geometry_msgs
   message_filters
   )
 # Insatll the executablese, headers and launch files

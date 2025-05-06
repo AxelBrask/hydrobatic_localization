@@ -120,6 +120,13 @@ class SamMotionModelFactor : public NoiseModelFactor4<Pose3, Pose3, Vector3,Vect
   double end_time_;
   const PreintegratedMotionModel PPM_;
   Vector3 gyro_;
+  mutable bool nominal;
+  mutable Matrix stored_H1_, stored_H2_, stored_H3_, stored_H4_;
+  mutable Pose3 nom_Ti,nom_Tj;
+  mutable Vector3 nom_velocity1,nom_velocity2;
+  mutable Vector nominal_error_;
+
+  
  public:
   using Base = NoiseModelFactor4<Pose3, Pose3, Vector3, Vector3>; //might need to include the bias for the gyro
   // SamMotionModelFactor(){};
@@ -137,7 +144,7 @@ class SamMotionModelFactor : public NoiseModelFactor4<Pose3, Pose3, Vector3,Vect
    */
   SamMotionModelFactor(Key poseKey1,Key poseKey2, Key velKey1,Key velKey2 , const SharedNoiseModel& model, 
   const double& start_time, const double& end_time, const PreintegratedMotionModel& pmm, const Vector3& gyro):
-  Base(model, poseKey1, poseKey2, velKey1, velKey2), start_time_(start_time), end_time_(end_time), PPM_(pmm), gyro_(gyro) {}
+  Base(model, poseKey1, poseKey2, velKey1, velKey2), start_time_(start_time), end_time_(end_time), PPM_(pmm), gyro_(gyro),nominal(true) {}
        
    /**
     * @brief Evaluate the error
@@ -151,7 +158,23 @@ class SamMotionModelFactor : public NoiseModelFactor4<Pose3, Pose3, Vector3,Vect
                     gtsam::OptionalMatrixType H1 = OptionalNone, gtsam::OptionalMatrixType H2 = OptionalNone,
                      gtsam::OptionalMatrixType H3 = OptionalNone, gtsam::OptionalMatrixType H4 = OptionalNone) const override;
 
+  Matrix getStoredH1() const { return stored_H1_; } 
+  Matrix getStoredH2() const { return stored_H2_; }
+  Matrix getStoredH3() const { return stored_H3_; }
+  Matrix getStoredH4() const { return stored_H4_; }
 
+  Vector rawError(
+    const Pose3& Ti, const Pose3& Tj,
+    const Vector3& vi, const Vector3& vj) const
+  {
+    Vector6 pose_err = Pose3::Logmap(
+      PPM_.getDeltaPose().inverse()
+              .compose(Ti.inverse().compose(Tj)));
+    Vector3 vel_err = vj - (vi + PPM_.getDeltaVel());
+    Vector e(9);
+    e << pose_err, vel_err;
+    return e;
+}
 };
 
 }  // namespace gtsam

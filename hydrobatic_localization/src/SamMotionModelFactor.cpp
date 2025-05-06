@@ -16,7 +16,7 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
           return state;
       }
 
-      // std::cout << "start time: " << start_time << ", end time: " << end_time << std::endl;
+      std::cout << "start time: " << start_time << ", end time: " << end_time << std::endl;
       //print the control list
       Eigen::VectorXd integratedState = vectorState;
       // std::cout << " Size of integrated state: " << integratedState.size() << std::endl;
@@ -26,13 +26,13 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
       // Integrate from start_time to the first control input if there's a gap.
       if (idx < control_list_.size() && control_list_[0].timestamp > currentTime) {
           double dt = control_list_[0].timestamp - currentTime;
+          // std::cout << "Integrating from start_time to first control input" << std::endl;
+          //  std::cout << "Control used: " << prev_control_.u.transpose() 
+                    // << ", timestamp: " << prev_control_.timestamp << " dt: " << dt << std::endl;
           integratedState = sam_motion_model_->integrateState(integratedState, prev_control_.u, dt);
           currentTime = control_list_[0].timestamp;
-          // std::cout << "Integrating from start_time to first control input" << std::endl;
-          // std::cout << "Control used: " << prev_control_.u.transpose() 
-                    // << ", timestamp: " << prev_control_.timestamp << " dt: " << dt << std::endl;
           // std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
-
+// 
       }
 
       // Integrate over the control sequence until reaching end_time.
@@ -177,61 +177,86 @@ void PreintegratedMotionModel::controlToList(const Eigen::VectorXd& u, const dou
 
 
 
-Vector SamMotionModelFactor::evaluateError(const Pose3 &pose1, const Pose3& pose2,const Vector3 &velocity1,
-           const Vector3& velocity2,gtsam::OptionalMatrixType H1 ,
-            gtsam::OptionalMatrixType H2 , gtsam::OptionalMatrixType H3 , gtsam::OptionalMatrixType H4) const {
-
-    Pose3 Ti = pose1; 
-    Pose3 Tj = pose2; 
-
-
-
-    Vector6 pose_error = Pose3::Logmap(PPM_.getDeltaPose().inverse().compose(Ti.inverse().compose(Tj)));
-    Vector3 vel_error = velocity2 - (velocity1 + PPM_.getDeltaVel());
-
-    Vector error(9);
-    error << pose_error, vel_error;
-
-    //Jacobian with respect to pose1
-    if(H1) {
-        *H1 = Matrix::Zero(9, 6);
-        // the jacobian w.r.t to rotation we use the numerical solver
-        Matrix H_rot = gtsam::numericalDerivative11<Vector, Pose3>( 
-        [this, pose2, velocity1, velocity2](const Pose3& p1){
-          return this->evaluateError(p1, pose2, velocity1, velocity2);},pose1);
-
-        H1->block<9,6>(0,0) = H_rot.block(0, 0, 9, 6);
-        // std::cout << "H_rot: " << H_rot << std::endl;
-      }
-    //Jacobian with respect to pose2
-    if(H2){
-      *H2 = Matrix::Zero(9, 6);
-      // Matrix6 H2_ana = H_A_logA * H_TiInvTj_A * H_Tj_TiInvTj*H_x_i_Tj;
-        Matrix H2_pose = gtsam::numericalDerivative11<Vector, Pose3>( 
-        [this, pose1, velocity1, velocity2](const Pose3& p2){
-          return this->evaluateError(pose1, p2, velocity1, velocity2);},pose2);
-        // H2->block<6,6>(0,0) = H2_ana.block(0, 0, 6,6);
-        H2->block<9,6>(0,0) = H2_pose.block(0, 0, 9,6);
-
-    }
+Vector SamMotionModelFactor::evaluateError(
+    const Pose3 &pose1, const Pose3& pose2,
+    const Vector3 &velocity1, const Vector3& velocity2,
+    gtsam::OptionalMatrixType H1, gtsam::OptionalMatrixType H2,
+    gtsam::OptionalMatrixType H3, gtsam::OptionalMatrixType H4) const
+{
+  Vector error(9);
+  // 1) Compute the true “nominal” error:
+  Pose3 Ti = pose1;
+  Pose3 Tj = pose2;
+  Vector6 pose_err = Pose3::Logmap(PPM_.getDeltaPose()
+                    .inverse()
+                    .compose(Ti.inverse().compose(Tj)));
+  Vector3 vel_err  = velocity2 - (velocity1 + PPM_.getDeltaVel());
 
 
-   //Jacobian with respect to velocity1
-    if(H3){
-      *H3 = Matrix::Zero(9, 3);
-        Matrix H3_num = gtsam::numericalDerivative11<Vector, Vector3>( 
-        [this, pose1,pose2, velocity2 ](const Vector3& v1){
-          return this->evaluateError(pose1, pose2, v1, velocity2);},velocity1);
-        H3->block<9,3>(0,0) = H3_num.block(0, 0, 9, 3);
-    }
-    //Jacobian with respect to velocity2
-    if(H4){
-      *H4 = Matrix::Zero(9, 3);
-      H4->block<3,3>(6,0) = Matrix3::Identity();
+  if(nominal) {
+    nom_Ti        = pose1;
+    nom_Tj        = pose2;
+    nom_velocity1 = velocity1;
+    nom_velocity2 = velocity2;
+    nominal_error_.resize(9);
+    nominal_error_ << pose_err, vel_err;
+    // 2) On *first* call: compute & stash *all* jacobians:
+    stored_H1_ = gtsam::numericalDerivative11<Vector,Pose3>(
+      [this,pose2,velocity1,velocity2](const Pose3& p1){
+        return this->rawError(p1, pose2, velocity1, velocity2);
+      }, pose1);
 
-    }
+    stored_H2_ = gtsam::numericalDerivative11<Vector,Pose3>(
+      [this,pose1,velocity1,velocity2](const Pose3& p2){
+        return this->rawError(pose1, p2, velocity1, velocity2);
+      }, pose2);
 
+    stored_H3_ = gtsam::numericalDerivative11<Vector,Vector3>(
+      [this,pose1,pose2,velocity2](const Vector3& v1){
+        return this->rawError(pose1, pose2, v1, velocity2);
+      }, velocity1);
+
+    // we know ∂err/∂v2 is trivial:
+    stored_H4_.setZero(9,3);
+    stored_H4_.block<3,3>(6,0) = Matrix3::Identity();
+
+    // flip the flag, and return the raw nominal error:
+    nominal = false;
+    
+    error << nominal_error_;
+  }
+  else{
+  // 3) On subsequent calls: build your Taylor‐approximation:
+  Vector err = nominal_error_
+             + stored_H1_ * Pose3::Logmap(nom_Ti.inverse().compose(Ti))
+             + stored_H2_ * Pose3::Logmap(nom_Tj.inverse().compose(Tj))
+             + stored_H3_ * (velocity1 - nom_velocity1)
+             + stored_H4_ * (velocity2 - nom_velocity2);
+  error << err;
+  }
+  // 4) Now, if the solver *did* request H1…H4, just hand out your cached blocks:
+  if(H1) *H1  = gtsam::numericalDerivative11<Vector,Pose3>(
+      [this,pose2,velocity1,velocity2](const Pose3& p1){
+        return this->rawError(p1, pose2, velocity1, velocity2);
+      }, pose1);
+
+
+    
+  if(H2) *H2 = gtsam::numericalDerivative11<Vector,Pose3>(
+      [this,pose1,velocity1,velocity2](const Pose3& p2){
+        return this->rawError(pose1, p2, velocity1, velocity2);
+      }, pose2);;
+  if(H3) *H3 = gtsam::numericalDerivative11<Vector,Vector3>(
+      [this,pose1,pose2,velocity2](const Vector3& v1){
+        return this->rawError(pose1, pose2, v1, velocity2);
+      }, velocity1);
+  if(H4) *H4 = stored_H4_;
+  
   return error;
 }
+
+
+
+
 
 }  // namespace gtsam
