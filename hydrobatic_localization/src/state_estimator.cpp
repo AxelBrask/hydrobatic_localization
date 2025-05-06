@@ -177,23 +177,30 @@ void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::S
   double measured_pressure = msg->fluid_pressure;
   double depth = -(measured_pressure - atmospheric_pressure_) / 9806.65; //Down negative
 
-  if (!is_graph_initialized_ && !map_initialized_) {
-        try {
-        transformStamped = tf_buffer_.lookupTransform("map", "odom",
-                                                      tf2::TimePointZero, std::chrono::seconds(1));
-        static_offset_ = transformStamped.transform.translation.z;
+  if (!baro_calibrated) {
+        // try {
+        // transformStamped = tf_buffer_.lookupTransform( "odom",msg->header.frame_id,
+                                                      // msg->header.stamp, std::chrono::seconds(1));
+        // 
+        // 
+// 
+      // } catch (tf2::TransformException &ex) {
+        // RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
+        // return;
+      // }
+    double z_sensor_enu = 0.057; // this is the offset from the base_link to the pressure sensor in ENU frame
+    static_offset_ = z_sensor_enu - depth; // this is the offset to the static frame
+    RCLCPP_INFO(this->get_logger(), "Static offset: %f", static_offset_);
+    RCLCPP_INFO(this->get_logger(), "Depth: %f", depth);
+    latest_depth_measurement_ =  depth + static_offset_; // depth in the odom frame
 
-      } catch (tf2::TransformException &ex) {
-        RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
-        return;
-      }
-    first_barometer_measurement_ =  - static_offset_ - depth ;
-    latest_depth_measurement_ =  depth - static_offset_; // depth in the odom frame
     new_barometer_measurement_received_ = true;
+    baro_calibrated = true;
     return;
   }
-  
-  latest_depth_measurement_ =  depth - static_offset_; // depth in the odom frame
+    RCLCPP_INFO(this->get_logger(), "After Static offset: %f", static_offset_);
+    RCLCPP_INFO(this->get_logger(), "Depth: %f", depth);
+  latest_depth_measurement_ =  depth + static_offset_; // depth in the odom frame
   new_barometer_measurement_received_ = true;
 }
 

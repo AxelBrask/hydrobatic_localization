@@ -190,6 +190,7 @@ private:
   double atmospheric_pressure_;
   double latest_depth_measurement_;
   double static_offset_;
+  bool baro_calibrated = false;
 
   // Previous state and bias
   NavState previous_state_;
