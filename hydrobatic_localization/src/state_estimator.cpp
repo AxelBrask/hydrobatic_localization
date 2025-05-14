@@ -12,12 +12,44 @@ StateEstimator::StateEstimator()
     first_barometer_measurement_(0.0), new_barometer_measurement_received_(false), atmospheric_pressure_(101325.0),
     dt_(0.01)
 {
+
+  rclcpp::QoS sensor_qos = 
+  rclcpp::SensorDataQoS()                   // optimized for high-rate sensors
+    .best_effort();
+
+
+using rclcpp::QOSDeadlineRequestedInfo;  
+using rclcpp::QOSMessageLostInfo;       
+rclcpp::SubscriptionOptions opts;
+  //callback group for imu and sbg and timer
+  auto cbg = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  rclcpp::SubscriptionOptions stim_opts;
+  stim_opts.callback_group = cbg;
+
+  rclcpp::SubscriptionOptions sbg_opts;
+  sbg_opts.callback_group = cbg;
+
+
+opts.event_callbacks.deadline_callback =
+  [this](QOSDeadlineRequestedInfo & info) {
+    RCLCPP_WARN(get_logger(),
+      "Deadline missed: total=%d, change=%d",
+      info.total_count, info.total_count_change);
+  };
+
+opts.event_callbacks.message_lost_callback =
+  [this](QOSMessageLostInfo & info) {
+    RCLCPP_WARN(get_logger(),
+      "Messages lost: total=%zu, change=%zu",
+      info.total_count, info.total_count_change);
+  };
   // Declare parameters
   this->declare_parameter<bool>("use_motion_model", true);
   this->get_parameter("use_motion_model", using_motion_model_);
 
-  this->declare_parameter<std::string>("inference_strategy","FullSmoothing");
+  this->declare_parameter<std::string>("inference_strategy","FixedLagSmoothing");
   this->get_parameter("inference_strategy", inference_strategy_);
+  name_space_ = this->get_namespace();
   InferenceStrategy inference_strategy;
   if(inference_strategy_ == "ISAM2"){
     inference_strategy = InferenceStrategy::ISAM2;
@@ -50,7 +82,6 @@ StateEstimator::StateEstimator()
   barometer_sub_ = this->create_subscription<sensor_msgs::msg::FluidPressure>(
       sam_msgs::msg::Topics::DEPTH_TOPIC, 10,
       std::bind(&StateEstimator::barometer_callback, this, std::placeholders::_1));
-// 
   gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
       smarc_msgs::msg::Topics::GPS_TOPIC, 10,
       std::bind(&StateEstimator::gps_callback, this, std::placeholders::_1));
@@ -83,7 +114,7 @@ StateEstimator::StateEstimator()
   motion_model_odom_ = this->create_publisher<nav_msgs::msg::Odometry>(
       "motion_model_odom", 10);
   pose_pub_ = this->create_publisher<nav_msgs::msg::Odometry>(
-      "estimated_pose", 10);
+      dead_reckoning_msgs::msg::Topics::DR_ODOM_TOPIC, 10);
   // Timer for keyframe updates. This should be changed to a seperate thread
   KeyframeTimer = this->create_wall_timer(
       std::chrono::milliseconds(100), std::bind(&StateEstimator::KeyframeTimerCallback, this));
@@ -126,6 +157,12 @@ void StateEstimator::control_input_callback(const smarc_msgs::msg::ThrusterFeedb
 
 
 void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg) {
+  // std::lock_guard<std::mutex> lock(graph_mutex_);
+
+
+
+// … callback body …auto t1 = std::chrono::high_resolution_clock::now();RCLCPP_INFO(get_logger(), "[IMU] done, %.2f ms",            std::chrono::duration<double, std::milli>(t1-t0).count());
+
   Vector3 acc(msg->linear_acceleration.x,
               msg->linear_acceleration.y,
               msg->linear_acceleration.z);
@@ -135,14 +172,11 @@ void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg) {
   gyro = Vector3(-gyro_raw.x(), -gyro_raw.y(), -gyro_raw.z()); // Adjusted gyro measurements to right-hand rule.
 
   // Current initialization of the graph is based on the first 6 imu measurements, 
-  if(number_of_imu_measurements< 6){
-    Rot3 current_rotation = Rot3::Quaternion(msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
-    estimated_rotations_.push_back(current_rotation);
-    number_of_imu_measurements++;
-  }
+
 
   double delta_t = 1.0 / 100.0;
   gtsam_graph_->integrateImuMeasurement(acc, gyro, delta_t);
+  
   
  }
 
@@ -150,15 +184,21 @@ void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg) {
 
 
 void StateEstimator::sbg_callback(const sensor_msgs::msg::Imu::SharedPtr msg){
+// std::lock_guard<std::mutex> lock(graph_mutex_); 
 
   Vector3 acc(msg->linear_acceleration.x,
               msg->linear_acceleration.y,
               msg->linear_acceleration.z);
+
   Vector3 gyro_raw(msg->angular_velocity.x,
                    msg->angular_velocity.y,
                    msg->angular_velocity.z);
   Vector3 sbg_gyro = Vector3(-gyro_raw.x(), -gyro_raw.y(), -gyro_raw.z());
-
+  if(number_of_imu_measurements< 6){
+    Rot3 current_rotation = Rot3::Quaternion(msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
+    estimated_rotations_.push_back(current_rotation);
+    number_of_imu_measurements++;
+  }
   double delta_t = 1.0 / 100.0; // or use: current_time - last_time_;
   gtsam_graph_->integrateSbgMeasurement(acc, sbg_gyro, delta_t);
 }
@@ -190,16 +230,12 @@ void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::S
       // }
     double z_sensor_enu = 0.057; // this is the offset from the base_link to the pressure sensor in ENU frame
     static_offset_ = z_sensor_enu - depth; // this is the offset to the static frame
-    RCLCPP_INFO(this->get_logger(), "Static offset: %f", static_offset_);
-    RCLCPP_INFO(this->get_logger(), "Depth: %f", depth);
     latest_depth_measurement_ =  depth + static_offset_; // depth in the odom frame
 
     new_barometer_measurement_received_ = true;
     baro_calibrated = true;
     return;
   }
-    RCLCPP_INFO(this->get_logger(), "After Static offset: %f", static_offset_);
-    RCLCPP_INFO(this->get_logger(), "Depth: %f", depth);
   latest_depth_measurement_ =  depth + static_offset_; // depth in the odom frame
   new_barometer_measurement_received_ = true;
 }
@@ -304,8 +340,6 @@ Rot3 StateEstimator::averageRotations(const std::vector<Rot3>& rotations) {
 
 
 
-void StateEstimator::KeyframeThread() {
-}
 
 
 void StateEstimator::KeyframeTimerCallback(){
@@ -314,9 +348,12 @@ void StateEstimator::KeyframeTimerCallback(){
   gtsam_graph_-> setTimeStamp(current_time);
   auto t1 = std::chrono::high_resolution_clock::now();
     if(number_of_imu_measurements < 6){
+          RCLCPP_INFO(get_logger(),
+      "  skipping: only %d IMUs (need ≥6)", number_of_imu_measurements);
       return;
       }
     if(!map_initialized_){
+       RCLCPP_INFO(get_logger(), "  skipping: map_initialized_ == false");
       return;
     }
     if (!is_graph_initialized_) {
@@ -367,13 +404,17 @@ void StateEstimator::KeyframeTimerCallback(){
         return;
       
     }
-
+    double dt = gtsam_graph_->getTij(); 
+    if (dt <= 0) {
+      RCLCPP_DEBUG(get_logger(), "No new IMU data this cycle, skipping IMU factor + optimize");
+      return;
+    }
+    // gtsam_graph_->incrementIndex();
     if(using_motion_model_){
       NavState state = NavState(previous_state_.pose(), previous_state_.velocity());
 
       NavState new_state = pmm->predict(state, gyro, last_time_, current_time);
       gtsam_graph_->addMotionModelFactor(last_time_,current_time,pmm,gyro,new_state);
-
       last_time_ = current_time;
     nav_msgs::msg::Odometry motion_model_odom;
     motion_model_odom.header.stamp = this->get_clock()->now();
@@ -393,6 +434,7 @@ void StateEstimator::KeyframeTimerCallback(){
     motion_model_odom.twist.twist.linear.z = new_state.velocity().z();
     motion_model_odom_->publish(motion_model_odom);
     }
+    
     // Predict the next state using the preintegrated measurements AND add the imu factor to the graph.
     NavState predictes_imu_state = gtsam_graph_->addImuFactor();
 
@@ -421,7 +463,9 @@ void StateEstimator::KeyframeTimerCallback(){
     // pmm->resetIntegration();
     // new_current_integration_state_ = true;
     // Update the current state and bias.
-    pmm->resetIntegration();
+    if(using_motion_model_){
+      pmm->resetIntegration();
+    }
     // RCLCPP_INFO(this->get_logger(), "Resetting the integration");
     current_imu_bias_ = gtsam_graph_->getCurrentImuBias();
     // current_sbg_bias_ = gtsam_graph_->getCurrentSbgBias();
@@ -478,7 +522,9 @@ int main(int argc, char **argv) {
   py::scoped_interpreter guard{};
   rclcpp::init(argc, argv);
   auto node = std::make_shared<StateEstimator>();
-  rclcpp::spin(node);
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(node);
+  executor.spin();
   rclcpp::shutdown();
   return 0;
 }

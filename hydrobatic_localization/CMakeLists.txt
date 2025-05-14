@@ -17,6 +17,7 @@ find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sam_msgs REQUIRED)
 find_package(smarc_msgs REQUIRED)
+find_package(dead_reckoning_msgs REQUIRED)
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -47,6 +48,7 @@ add_executable(state_estimator src/state_estimator.cpp src/gtsam_graph.cpp src/B
 ament_target_dependencies(state_estimator
   rclcpp
   sensor_msgs
+  dead_reckoning_msgs
   std_msgs
   nav_msgs
   sam_msgs

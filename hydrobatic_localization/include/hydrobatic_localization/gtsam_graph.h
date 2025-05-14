@@ -147,6 +147,9 @@ public:
   void integrateSbgMeasurement(const Vector3& acc, const Vector3& gyro, const double dt);
 
   void setTimeStamp(double time_stamp) {time_stamp_ = time_stamp; }
+
+  double getTij() const { return imu_preintegrated_->deltaTij(); }
+  void incrementIndex() { current_index_++; }
 private:
   NonlinearFactorGraph graph_;
   Values initial_estimate_;

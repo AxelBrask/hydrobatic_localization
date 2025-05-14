@@ -97,6 +97,7 @@ void GtsamGraph::integrateSbgMeasurement(const Vector3& acc, const Vector3& gyro
 
 NavState GtsamGraph::addImuFactor() {
   // int next_index = current_index_ + 1;
+  std::cout << "IMU index used: " << current_index_ << std::endl;
    PreintegratedCombinedMeasurements pim = *imu_preintegrated_;
   CombinedImuFactor imu_factor(
     X(current_index_), V(current_index_),
@@ -183,50 +184,50 @@ void GtsamGraph::optimize() {
 
   if(inference_strategy_ ==InferenceStrategy::FullSmoothing){
     std::cout << "Full Smoothing optmizer" << std::endl;
-    // optimizeFullSmoothing();
+      // optimizeFullSmoothing();
 
-  LevenbergMarquardtParams params;
-  // params.setVerbosity("ERROR");
-  LevenbergMarquardtOptimizer optimizer(graph_, initial_estimate_, params);
-  Values result = optimizer.optimize();
-  // result.print("Final Result:\n");
+    LevenbergMarquardtParams params;
+    // params.setVerbosity("ERROR");
+    LevenbergMarquardtOptimizer optimizer(graph_, initial_estimate_, params);
+    Values result = optimizer.optimize();
+    // result.print("Final Result:\n");
 
-  current_imu_bias_ = result.at<imuBias::ConstantBias>(B(current_index_));
-  // current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_));
-  previous_state_ = NavState(result.at<Pose3>(X(current_index_)), result.at<Vector3>(V(current_index_)));
+    current_imu_bias_ = result.at<imuBias::ConstantBias>(B(current_index_+1));
+    current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_+1));
+    previous_state_ = NavState(result.at<Pose3>(X(current_index_+1)), result.at<Vector3>(V(current_index_+1)));
 
-  imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
-  sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
+    imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
+    sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
   }
   else if(inference_strategy_ == InferenceStrategy::FixedLagSmoothing || inference_strategy_ == InferenceStrategy::EKF){
       double t = static_cast<double>(current_index_);
       std::cout<< "timestamp: " << t << std::endl;
       for (auto const& kv : initial_estimate_) {
-      smoother_timestamp_map_[kv.key] = t;
+       smoother_timestamp_map_[kv.key] = t;
     }
-    std::cout << "Fixed Lag Smoothing optmizer" << std::endl;
-    
-    fixed_lag_smoother_->update(graph_, initial_estimate_,smoother_timestamp_map_);
-        for (auto it = smoother_timestamp_map_.begin(); it != smoother_timestamp_map_.end();) {
-      if (it->second < t - smootherLag)
-        it = smoother_timestamp_map_.erase(it);
-      else
-        ++it;
+      std::cout << "Fixed Lag Smoothing optmizer" << std::endl;
+      
+      fixed_lag_smoother_->update(graph_, initial_estimate_,smoother_timestamp_map_);
+          for (auto it = smoother_timestamp_map_.begin(); it != smoother_timestamp_map_.end();) {
+        if (it->second < t - smootherLag)
+          it = smoother_timestamp_map_.erase(it);
+        else
+          ++it;
     }
-    Values result = fixed_lag_smoother_->calculateEstimate();
-    current_imu_bias_ = result.at<imuBias::ConstantBias>(B(current_index_));
-    current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_));
-    previous_state_ = NavState(result.at<Pose3>(X(current_index_)), result.at<Vector3>(V(current_index_)));
-    //log the current size of the graph
-    std::cout << "# factors kept by smoother: "
-              << fixed_lag_smoother_->getFactors().size() << '\n';
-    std::cout << "# variables in window    : "
-              << fixed_lag_smoother_->getISAM2().getLinearizationPoint().size() << '\n';
-    graph_.resize(0);
-    // smoother_timestamp_map_.clear();
-    initial_estimate_.clear();
-    imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
-    sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
+      Values result = fixed_lag_smoother_->calculateEstimate();
+      current_imu_bias_ = result.at<imuBias::ConstantBias>(B(current_index_));
+      current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_));
+      previous_state_ = NavState(result.at<Pose3>(X(current_index_)), result.at<Vector3>(V(current_index_)));
+      //log the current size of the graph
+      std::cout << "# factors kept by smoother: "
+                << fixed_lag_smoother_->getFactors().size() << '\n';
+      std::cout << "# variables in window    : "
+                << fixed_lag_smoother_->getISAM2().getLinearizationPoint().size() << '\n';
+      graph_.resize(0);
+      // smoother_timestamp_map_.clear();
+      initial_estimate_.clear();
+      imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
+      sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
   } 
 
 
@@ -235,9 +236,9 @@ void GtsamGraph::optimize() {
     isam_->update(graph_, initial_estimate_);
 
     Values result = isam_->calculateEstimate();
-    current_imu_bias_ = result.at<imuBias::ConstantBias>(B(current_index_));
-    current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_));
-    previous_state_ = NavState(result.at<Pose3>(X(current_index_)), result.at<Vector3>(V(current_index_)));
+    current_imu_bias_ = result.at<imuBias::ConstantBias>(B(current_index_+1));
+    current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_+1));
+    previous_state_ = NavState(result.at<Pose3>(X(current_index_+1)), result.at<Vector3>(V(current_index_+1)));
     graph_.resize(0);
     initial_estimate_.clear();
     imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
@@ -265,13 +266,13 @@ int GtsamGraph::getCurrentIndex() const {
 }
 
 std::shared_ptr<PreintegratedCombinedMeasurements::Params> GtsamGraph::getImuParams() {
-  double accel_noise_sigma = 2.0e-4;
+  double accel_noise_sigma = 2.0e-3;
   double gyro_noise_sigma = 5.0e-4;
-  double accel_bias_rw_sigma = 1e-3;
-  double gyro_bias_rw_sigma = 1e-3;
+  double accel_bias_rw_sigma = 1e-4;
+  double gyro_bias_rw_sigma = 1e-6;
   Matrix33 measured_acc_cov = I_3x3 * pow(accel_noise_sigma, 2);
   Matrix33 measured_omega_cov = I_3x3 * pow(gyro_noise_sigma, 2);
-  Matrix33 integration_error_cov = I_3x3 * 1e-5;
+  Matrix33 integration_error_cov = I_3x3 * 1e-4;
   Matrix33 bias_acc_cov = I_3x3 * pow(accel_bias_rw_sigma, 2);
   Matrix33 bias_omega_cov = I_3x3 * pow(gyro_bias_rw_sigma, 2);
   Matrix66 bias_acc_omega_init = I_6x6 * 1e-5;
@@ -287,13 +288,13 @@ std::shared_ptr<PreintegratedCombinedMeasurements::Params> GtsamGraph::getImuPar
 }
 
 std::shared_ptr<PreintegratedCombinedMeasurements::Params> GtsamGraph::getSbgParams() {
-  double accel_noise_sigma = 2.0e-4;
+  double accel_noise_sigma = 2.0e-3;
   double gyro_noise_sigma = 5.0e-4;
-  double accel_bias_rw_sigma = 1e-3;
-  double gyro_bias_rw_sigma = 1e-3;
+  double accel_bias_rw_sigma = 1e-4;
+  double gyro_bias_rw_sigma = 1e-6;
   Matrix33 measured_acc_cov = I_3x3 * pow(accel_noise_sigma, 2);
   Matrix33 measured_omega_cov = I_3x3 * pow(gyro_noise_sigma, 2);
-  Matrix33 integration_error_cov = I_3x3 * 1e-5;
+  Matrix33 integration_error_cov = I_3x3 * 1e-4;
   Matrix33 bias_acc_cov = I_3x3 * pow(accel_bias_rw_sigma, 2);
   Matrix33 bias_omega_cov = I_3x3 * pow(gyro_bias_rw_sigma, 2);
   Matrix66 bias_acc_omega_init = I_6x6 * 1e-5;

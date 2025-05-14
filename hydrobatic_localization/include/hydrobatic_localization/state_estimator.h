@@ -10,6 +10,7 @@
 #include <smarc_msgs/msg/dvl.hpp>
 #include <smarc_msgs/msg/thruster_feedback.hpp>
 #include <smarc_msgs/msg/percent_stamped.hpp>
+#include <dead_reckoning_msgs/msg/topics.hpp>
 #include <sam_msgs/msg/thruster_angles.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <tf2_ros/buffer.h>
@@ -25,6 +26,9 @@
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
+// ROS Multithreading
+#include <rclcpp/executors/multi_threaded_executor.hpp>
+
 
 // GTSAM and GeographicLib includes
 #include <gtsam/navigation/CombinedImuFactor.h>
@@ -102,7 +106,6 @@ private:
    */
   void ThrusterVectorCallback(const sam_msgs::msg::ThrusterAngles::SharedPtr msg);
 
-  void KeyframeThread();
   void KeyframeTimerCallback();
   /**
    * @brief Callback function for the control inputs, sets the latest control input, the thruster vector is give my the thruster vector topic. Then integrates the control input
@@ -147,6 +150,7 @@ private:
   tf2_ros::TransformBroadcaster tf_broadcast_;
   std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_static_broadcaster_;
   geometry_msgs::msg::TransformStamped transformStamped;
+  std::string name_space_;
 
   rclcpp::TimerBase::SharedPtr KeyframeTimer;
 
@@ -203,7 +207,10 @@ private:
   double dt_;
   bool using_motion_model_;
 
-
+  //Thred stuff
+  // std::thread optimize_thread_;
+  // std::mutex  graph_mutex_;
+  // std::atomic<bool> stop_thread_{false};
   //Log file
   std::ofstream logFile_;
 
