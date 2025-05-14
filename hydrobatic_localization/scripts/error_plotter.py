@@ -10,7 +10,7 @@ except ImportError:
     def display(x): print(x)
 sns.set_style("darkgrid")
 
-log_dir   = pathlib.Path("localizaton_logs") 
+log_dir   = pathlib.Path("stationary_logs") 
 log_paths = sorted(log_dir.glob("*.csv")) 
 #static
 #turn back and frouth
@@ -33,37 +33,39 @@ big = pd.concat(runs, ignore_index=True)
 
 display(big.groupby("run")[["error_x", "error_y", "error_z", "error_total"]].describe().round(3))
 
+runs_new =  sorted(big["run"].unique())
+run_colours = dict(zip(runs_new, sns.color_palette("tab10", len(runs_new))))
+def rmse(err):
+    return np.sqrt((err**2).mean())
+style_list = [
+    dict(ls="-",  lw=2.5),
+    dict(ls="-", lw=2.0),
+    dict(ls="-", lw=1.8),
+    dict(ls="-",  lw=1.8),
+]
 
-axis_colours = dict(zip(["error_x", "error_y", "error_z"],
-                        sns.color_palette("tab10", 3)))
+for axis in ["error_x", "error_y", "error_z"]:
+    run_styles = itertools.cycle(style_list)
 
-run_styles = itertools.cycle([
-    dict(ls="-",  lw=2.5),    
-    dict(ls="--", lw=2.0),    
-    dict(ls="-.", lw=1.8),   
-    dict(ls=":",  lw=1.8),   
-])
-
-plt.figure(figsize=(12, 6))
-
-for run, g in big.groupby("run"):
-    style = next(run_styles)           # grab the next visual style
-    for axis in ["error_x", "error_y", "error_z"]:
+    plt.figure(figsize=(12, 4))
+    for run in runs_new:
+        g = big[big["run"] == run]
+        style = next(run_styles)
         plt.plot(
             g["time"],
             g[axis],
-            label=f"{run} – {axis.split('_')[1]}",   # → “ISAM – x”, “EKF – y”, …
-            color=axis_colours[axis],                # colour encodes x/y/z
-            **style,                                 # linestyle & linewidth encode run
+            label=f"{run} – {axis.split('_')[1].upper()}",
+            color=run_colours[run],    # ← use run color here
+            **style,
             alpha=0.9,
         )
 
-plt.xlabel("Time [s]")
-plt.ylabel("Error [m]")
-plt.title("State‑estimator error per axis")
-plt.legend(ncol=3, fontsize=8)
-plt.tight_layout()
-plt.show()
+    plt.xlabel("Time [s]")
+    plt.ylabel("Error [m]")
+    plt.title(f"{axis.split('_')[1].upper()} Error over Time")
+    plt.legend(fontsize=8, ncol=len(runs_new))
+    plt.tight_layout()
+    plt.show()
 
 
 # 5.  Plot the XY trajectories --------------------------------------------------

@@ -40,7 +40,7 @@ class PreintegratedMotionModel
    * @brief Constructor for the PreintegratedMotionModel
    * @param dt: time step for the motion model
    */
-  PreintegratedMotionModel(double dt): sam_motion_model_(std::shared_ptr<SamMotionModelWrapper>(new SamMotionModelWrapper(dt))), dt_(dt) { 
+  PreintegratedMotionModel(double dt): sam_motion_model_(std::shared_ptr<SamMotionModelWrapper>(new SamMotionModelWrapper(dt))) { 
     prev_control_.u = Eigen::VectorXd::Zero(6);
   }
   /**

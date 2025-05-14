@@ -19,7 +19,7 @@ public:
             geometry_msgs::msg::TransformStamped odom_to_odom_gt;
    
         get_static_utm_map_gt();
-        log_file_.open("state_estimator_log.csv");
+        log_file_.open("stationary_logs/state_estimator_log.csv");
         log_file_ << "time, est_pos_x, est_pos_y, est_pos_z, est_quat_w, est_quat_x, est_quat_y, est_quat_z, "
                   << "gt_pos_x, gt_pos_y, gt_pos_z, gt_quat_w, gt_quat_x, gt_quat_y, gt_quat_z\n";
         // gt_sub_.subscribe(this, "core/odom_gt");
@@ -41,10 +41,10 @@ public:
   {
     try {
       utm_map_gt_ = tf_buffer_.lookupTransform(
-        "map",                     // target frame
-        "sam_auv_v1/odom_gt", // source frame
-        rclcpp::Time(0),           // latest available
-        tf2::durationFromSec(2.0)  // timeout
+        "map",                     
+        "sam_auv_v1/odom_gt", 
+        rclcpp::Time(0),           
+        tf2::durationFromSec(0.1)  
       );
       have_utm_map_gt_ = true;
     }
@@ -83,17 +83,18 @@ public:
   {
     // Lookup both transforms into 'odom'
     geometry_msgs::msg::TransformStamped tf_est, tf_gt;
+    rclcpp::Time stamp = this->now();
     try {
 
       tf_est = tf_buffer_.lookupTransform(
-        "map",           // target frame
-        "estimated_pose",// source frame (replace with your estimator frame_id)
-        rclcpp::Time(0),   // latest available
+        "map",           
+        "estimated_pose",
+        stamp,   
         tf2::durationFromSec(0.05));
     tf_gt = tf_buffer_.lookupTransform(
-        "sam_auv_v1/odom_gt",           // same target
-        "sam_auv_v1/base_link_gt", // source frame (replace with your GT frame_id)
-               tf_gt.header.stamp,
+        "sam_auv_v1/odom_gt",           
+        "sam_auv_v1/base_link_gt", 
+        stamp,
         tf2::durationFromSec(0.05));
         tf2::doTransform(tf_gt, tf_gt, utm_map_gt_);
 
@@ -104,7 +105,7 @@ public:
     }
 
     double t = this->now().seconds();
-    // Write CSV row: time, est..., gt...
+    
     log_file_ << t << ", "
               << tf_est.transform.translation.x  << ", "
               << tf_est.transform.translation.y  << ", "

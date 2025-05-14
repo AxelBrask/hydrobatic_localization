@@ -1,24 +1,23 @@
 #include "hydrobatic_localization/SamMotionModel.h"
 
-SamMotionModelWrapper::SamMotionModelWrapper(double dt)
-    : dt_(dt)
+SamMotionModelWrapper::SamMotionModelWrapper(double dt): dt_(dt)
 {
   
 
     {
         py::module motion_model = py::module::import("smarc_modelling.vehicles.SAM_casadi");
-        sam_object_ = motion_model.attr("SAM_casadi")(dt_);
+        sam_object_ = motion_model.attr("SAM_casadi")();
         dynamics_func_ = sam_object_.attr("dynamics")();
     }
 
 }
 
-Eigen::VectorXd SamMotionModelWrapper::Dynamics(const Eigen::VectorXd& x, const Eigen::VectorXd& u) const {
+Eigen::VectorXd SamMotionModelWrapper::Dynamics(const Eigen::VectorXd& x, const Eigen::VectorXd& u, double dt) const {
 
     Eigen::VectorXd x_dot_eigen;
     py::gil_scoped_acquire acquire; 
-    py::object x_dot = dynamics_func_(x, u);
-
+    py::object x_dot = dynamics_func_(x, u, dt);
+    std::cout <<"[INFO] dt: " << dt << std::endl;
     x_dot_eigen = x_dot.cast<Eigen::VectorXd>();
     return x_dot_eigen;
 }
@@ -38,10 +37,11 @@ Eigen::VectorXd SamMotionModelWrapper::integrateState(const Eigen::VectorXd& x, 
         }
         
         // Call the dynamics
-        Eigen::VectorXd x_dot = Dynamics(new_state, control);
-        // std::cout << "[INFO] x_dot: "<< x_dot << std::endl;
+        Eigen::VectorXd x_dot = Dynamics(new_state, control,dt_step);
+        std::cout << "[INFO] x_dot: "<< x_dot << std::endl;
         // Euler integration
         new_state = new_state + dt_step * x_dot;
+        // std::cout << "[INFO] contorl for next dynamics: "<< new_state.tail(6).transpose() << std::endl;
 
         // Normalize the quaternion
         Eigen::Vector4d q = new_state.segment(3, 4);

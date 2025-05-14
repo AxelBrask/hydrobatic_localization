@@ -10,7 +10,15 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
       Eigen::VectorXd vectorState(19);
       vectorState.head(13) = stateToVector(state, gyro);     
       vectorState.tail(6) = prev_control_.u;  
-      
+      //if vectorState is only zeros takt the first cotrl input
+      if(vectorState.tail(6).isZero(6)){
+          vectorState.tail(6) = control_list_[0].u;
+      }
+      //print control list
+      // std::cout << "Control list: " << std::endl;
+      // for (const auto& control : control_list_) {
+      //     std::cout << "Timestamp: " << control.timestamp << ", Control: " << control.u.transpose() << std::endl;
+      // }
       // If there are no control inputs, return the input state.
       if (control_list_.empty()) {  
           return state;
@@ -19,6 +27,7 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
       std::cout << "start time: " << start_time << ", end time: " << end_time << std::endl;
       //print the control list
       Eigen::VectorXd integratedState = vectorState;
+      std::cout<<"integrated state: " << integratedState.transpose() << std::endl;
       // std::cout << " Size of integrated state: " << integratedState.size() << std::endl;
       double currentTime = start_time;
       size_t idx = 0;  // Index to track current control
@@ -26,9 +35,9 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
       // Integrate from start_time to the first control input if there's a gap.
       if (idx < control_list_.size() && control_list_[0].timestamp > currentTime) {
           double dt = control_list_[0].timestamp - currentTime;
-          // std::cout << "Integrating from start_time to first control input" << std::endl;
-          //  std::cout << "Control used: " << prev_control_.u.transpose() 
-                    // << ", timestamp: " << prev_control_.timestamp << " dt: " << dt << std::endl;
+          std::cout << "Integrating from start_time to first control input" << std::endl;
+           std::cout << "Control used: " << integratedState.tail(6).transpose() 
+                    << ", timestamp: " << prev_control_.timestamp << " dt: " << dt << std::endl;
           integratedState = sam_motion_model_->integrateState(integratedState, prev_control_.u, dt);
           currentTime = control_list_[0].timestamp;
           // std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
@@ -37,12 +46,13 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
 
       // Integrate over the control sequence until reaching end_time.
       for (; idx < control_list_.size()-1 && control_list_[idx+1].timestamp <= end_time; idx++) {
-          // std::cout << "Integrating between control inputs" << std::endl;
+          std::cout << "Integrating between control inputs" << std::endl;
           double dt = control_list_[idx+1].timestamp - currentTime;
+                  std::cout << "Control used: " << integratedState.tail(6).transpose() 
+                  << ", timestamp: " << control_list_[idx].timestamp << " dt: " << dt << std::endl;
           integratedState = sam_motion_model_->integrateState(integratedState, control_list_[idx].u, dt);
           currentTime = control_list_[idx+1].timestamp;
-          // std::cout << "Control used: " << control_list_[idx].u.transpose() 
-                    // << ", timestamp: " << control_list_[idx].timestamp << " dt: " << dt << std::endl;
+
           // std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
 
       }
@@ -50,12 +60,13 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
       // Integrate from the last control to end_time if necessary.
       double dt = end_time - control_list_[idx].timestamp;
       if (dt > 0) {
-          // std::cout << "Integrating from last control input to end_time" << std::endl;
+          std::cout << "Integrating from last control input to end_time" << std::endl;
+          std::cout << "Control used: " << integratedState.tail(6).transpose() 
+                    << ", timestamp: " << control_list_.back().timestamp << " dt: " << dt << std::endl;
           integratedState = sam_motion_model_->integrateState(integratedState, control_list_.back().u, dt);
-          // std::cout << "Control used: " << control_list_.back().u.transpose() 
-                    // << ", timestamp: " << control_list_.back().timestamp << " dt: " << dt << std::endl;
-                    // std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
-          // std::cout << "Final integrated state: " << integratedState.transpose() << std::endl;
+          
+          //           std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
+          std::cout << "Final integrated state: " << integratedState.transpose() << std::endl;
       }
 
       // Convert the integrated state vector back to a NavState.
@@ -94,7 +105,7 @@ Eigen::VectorXd PreintegratedMotionModel::stateToVector(
                               * state.velocity();
     Eigen::Vector3d un = B * v_b_enu; 
 
-    Eigen::Vector3d gn = B* gyro;
+    Eigen::Vector3d gn = B* (-gyro);
 
     Eigen::VectorXd eta(7), nu(6), x(13);
     eta << tn.x(), tn.y(), tn.z(),

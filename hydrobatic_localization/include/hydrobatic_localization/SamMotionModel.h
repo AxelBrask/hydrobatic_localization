@@ -41,7 +41,7 @@ public:
      * @param control: control input to the system
      * @return Eigen::VectorXd: the derivative of the state
      */
-    Eigen::VectorXd Dynamics(const Eigen::VectorXd& x, const Eigen::VectorXd& u) const;
+    Eigen::VectorXd Dynamics(const Eigen::VectorXd& x, const Eigen::VectorXd& u,double dt) const;
 
     /**
      * @brief Integrates the state using the SAM motion model, the time step is set in the constructor
