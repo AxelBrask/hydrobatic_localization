@@ -14,12 +14,15 @@ SamMotionModelWrapper::SamMotionModelWrapper(double dt): dt_(dt)
 
 Eigen::VectorXd SamMotionModelWrapper::Dynamics(const Eigen::VectorXd& x, const Eigen::VectorXd& u, double dt) const {
 
-    Eigen::VectorXd x_dot_eigen;
-    py::gil_scoped_acquire acquire; 
-    py::object x_dot = dynamics_func_(x, u, dt);
-    std::cout <<"[INFO] dt: " << dt << std::endl;
-    x_dot_eigen = x_dot.cast<Eigen::VectorXd>();
-    return x_dot_eigen;
+  try {
+    std::cout<<"[INFO] calling dynamics function"<<std::endl;
+    py::object x_dot_py = dynamics_func_(x, u, dt);
+    std::cout<<"[INFO] back from dynamics"<<std::endl;
+    return x_dot_py.cast<Eigen::VectorXd>();
+  } catch (const py::error_already_set& e) {
+    std::cerr<<"[ERROR] Python exception: "<<e.what()<<std::endl;
+    throw;
+  }
 }
 
 Eigen::VectorXd SamMotionModelWrapper::integrateState(const Eigen::VectorXd& x, const Eigen::VectorXd& control,
