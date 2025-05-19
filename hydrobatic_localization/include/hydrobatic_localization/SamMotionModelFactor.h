@@ -33,7 +33,8 @@ class PreintegratedMotionModel
   NavState predictedState_j; 
   gtsam::Pose3 deltaPose_;       // Relative pose from i -> i+1
   gtsam::Vector3 deltaVel_;      // Relative velocity
-  double deltaT_;                
+  double deltaT_;  
+  controlSequence prev_integrated_control_;              
 
   public:
   /**
@@ -42,6 +43,7 @@ class PreintegratedMotionModel
    */
   PreintegratedMotionModel(double dt): sam_motion_model_(std::shared_ptr<SamMotionModelWrapper>(new SamMotionModelWrapper(dt))) { 
     prev_control_.u = Eigen::VectorXd::Zero(6);
+    prev_integrated_control_.u = Eigen::VectorXd::Zero(6);
   }
   /**
    * @brief Resets the control list and sets the prev control, should be after each optimization of the graph

@@ -9,16 +9,16 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
       // Convert the input NavState to a state vector using the provided gyro measurement.
       Eigen::VectorXd vectorState(19);
       vectorState.head(13) = stateToVector(state, gyro);     
-      vectorState.tail(6) = prev_control_.u;  
+      vectorState.tail(6) = prev_integrated_control_.u;  
       //if vectorState is only zeros takt the first cotrl input
       if(vectorState.tail(6).isZero(6)){
           vectorState.tail(6) = control_list_[0].u;
       }
       //print control list
       // std::cout << "Control list: " << std::endl;
-      // for (const auto& control : control_list_) {
-      //     std::cout << "Timestamp: " << control.timestamp << ", Control: " << control.u.transpose() << std::endl;
-      // }
+      for (const auto& control : control_list_) {
+          std::cout << "Timestamp: " << control.timestamp << ", Control: " << control.u.transpose() << std::endl;
+      }
       // If there are no control inputs, return the input state.
       if (control_list_.empty()) {  
           return state;
@@ -27,7 +27,7 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
       std::cout << "start time: " << start_time << ", end time: " << end_time << std::endl;
       //print the control list
       Eigen::VectorXd integratedState = vectorState;
-      std::cout<<"integrated state: " << integratedState.transpose() << std::endl;
+      std::cout<<" start of integrated state: " << integratedState.transpose() << std::endl;
       // std::cout << " Size of integrated state: " << integratedState.size() << std::endl;
       double currentTime = start_time;
       size_t idx = 0;  // Index to track current control
@@ -40,7 +40,7 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
                     << ", timestamp: " << prev_control_.timestamp << " dt: " << dt << std::endl;
           integratedState = sam_motion_model_->integrateState(integratedState, prev_control_.u, dt);
           currentTime = control_list_[0].timestamp;
-          // std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
+          std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
 // 
       }
 
@@ -53,7 +53,7 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
           integratedState = sam_motion_model_->integrateState(integratedState, control_list_[idx].u, dt);
           currentTime = control_list_[idx+1].timestamp;
 
-          // std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
+          std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
 
       }
 
@@ -74,6 +74,8 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
       // deltaPose_
       deltaPose_ = state.pose().between(integratedNavState.pose());
       deltaVel_ = integratedNavState.velocity() - state.velocity();
+      prev_integrated_control_.u = integratedState.tail(6);
+
     return integratedNavState;
 
 
@@ -97,7 +99,7 @@ Eigen::VectorXd PreintegratedMotionModel::stateToVector(
 
     // ENU to NED orientation
     Eigen::Matrix3d Re = state.pose().rotation().matrix();
-    Eigen::Matrix3d Rn = T * Re ;  
+    Eigen::Matrix3d Rn = T * Re *B;  
     Eigen::Quaterniond qn(Rn);
     qn.normalize();
 
@@ -105,7 +107,7 @@ Eigen::VectorXd PreintegratedMotionModel::stateToVector(
                               * state.velocity();
     Eigen::Vector3d un = B * v_b_enu; 
 
-    Eigen::Vector3d gn = B* (-gyro);
+    Eigen::Vector3d gn = B* (gyro);
 
     Eigen::VectorXd eta(7), nu(6), x(13);
     eta << tn.x(), tn.y(), tn.z(),
@@ -139,7 +141,7 @@ NavState PreintegratedMotionModel::vectorToState(
 
     // NED to ENU orientation 
     Eigen::Matrix3d Rbn_n = qn.toRotationMatrix();
-    Eigen::Matrix3d Rbn_e = T * Rbn_n ;  
+    Eigen::Matrix3d Rbn_e = T * Rbn_n * B;  
     gtsam::Pose3 pose_e{ gtsam::Rot3(Rbn_e), gtsam::Point3(te) };
 
   //velocity in ENU
@@ -155,9 +157,9 @@ void PreintegratedMotionModel::controlToList(const Eigen::VectorXd& u, const dou
           // add the first input to the qeue
           if(control_list_.empty()){
                   controlSequence new_control;
-                  new_control.u = Eigen::VectorXd::Zero(6); // Initialize with zeros
+                  new_control.u = prev_control_.u; // Initialize with zeros
                   if (isThrusterVector) {
-                    new_control.u.segment<2>(0) = u;
+                    new_control.u.segment<2>(2) = u;
                   }
                   else {
                     new_control.u.segment<2>(0) = u.segment<2>(0);

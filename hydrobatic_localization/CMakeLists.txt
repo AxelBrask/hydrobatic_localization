@@ -28,6 +28,7 @@ find_package(message_filters REQUIRED)
 find_package(pybind11 REQUIRED)
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 find_library(CPPUNITLITE_LIBRARY NAMES CppUnitLite PATHS /usr/local/lib)
+find_package(piml_msgs REQUIRED)
 
 # GTSAM stuff
 find_package(GTSAMCMakeTools)
@@ -57,6 +58,7 @@ ament_target_dependencies(state_estimator
   tf2_ros
   tf2_geometry_msgs
   geometry_msgs
+  piml_msgs
 )
 target_link_libraries(state_estimator
   gtsam
@@ -75,6 +77,13 @@ ament_target_dependencies(logger
   message_filters
   )
 # Insatll the executablese, headers and launch files
+
+install(PROGRAMS
+/home/axel/colcon_ws/src/smarc2/external_packages/smarc_modelling/src/smarc_modelling/piml/utils/topic_collector.py
+${PROJECT_SOURCE_DIR}/scripts/dvl_raw.py
+DESTINATION lib/${PROJECT_NAME}
+)
+
 install(TARGETS
   # hydrobatic_localization
   state_estimator

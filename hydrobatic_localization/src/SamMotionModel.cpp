@@ -15,9 +15,7 @@ SamMotionModelWrapper::SamMotionModelWrapper(double dt): dt_(dt)
 Eigen::VectorXd SamMotionModelWrapper::Dynamics(const Eigen::VectorXd& x, const Eigen::VectorXd& u, double dt) const {
 
   try {
-    std::cout<<"[INFO] calling dynamics function"<<std::endl;
     py::object x_dot_py = dynamics_func_(x, u, dt);
-    std::cout<<"[INFO] back from dynamics"<<std::endl;
     return x_dot_py.cast<Eigen::VectorXd>();
   } catch (const py::error_already_set& e) {
     std::cerr<<"[ERROR] Python exception: "<<e.what()<<std::endl;
@@ -41,7 +39,7 @@ Eigen::VectorXd SamMotionModelWrapper::integrateState(const Eigen::VectorXd& x, 
         
         // Call the dynamics
         Eigen::VectorXd x_dot = Dynamics(new_state, control,dt_step);
-        std::cout << "[INFO] x_dot: "<< x_dot << std::endl;
+        // std::cout << "[INFO] x_dot: "<< x_dot << std::endl;
         // Euler integration
         new_state = new_state + dt_step * x_dot;
         // std::cout << "[INFO] contorl for next dynamics: "<< new_state.tail(6).transpose() << std::endl;

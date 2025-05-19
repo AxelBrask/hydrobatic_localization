@@ -22,6 +22,8 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include "tf2_ros/static_transform_broadcaster.h"
+#include <piml_msgs/msg/thruster_rpm_stamped.hpp>
+#include <sam_msgs/msg/thruster_rp_ms.hpp>
 // Message filters
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
@@ -115,10 +117,21 @@ private:
    * @param lcg: the feedback from the LCG
    * @param vbs: the feedback from the VBS
    */
-  void control_input_callback(const smarc_msgs::msg::ThrusterFeedback::ConstSharedPtr thruster1,
-                              const smarc_msgs::msg::ThrusterFeedback::ConstSharedPtr thruster2,
-                              const smarc_msgs::msg::PercentStamped::ConstSharedPtr lcg,
-                              const smarc_msgs::msg::PercentStamped::ConstSharedPtr vbs);
+  // void control_input_callback(const piml_msgs::msg::ThrusterRPMStamped::ConstSharedPtr thruster1,
+  //                             const piml_msgs::msg::ThrusterRPMStamped::ConstSharedPtr thruster2,
+  //                             const smarc_msgs::msg::PercentStamped::ConstSharedPtr lcg,
+  //                             const smarc_msgs::msg::PercentStamped::ConstSharedPtr vbs);
+
+  void thruster_callback(const piml_msgs::msg::ThrusterRPMStamped::ConstSharedPtr t1,
+                          const piml_msgs::msg::ThrusterRPMStamped::ConstSharedPtr t2);
+
+
+  void lcg_vbs_callback(
+    const smarc_msgs::msg::PercentStamped::ConstSharedPtr lcg,
+    const smarc_msgs::msg::PercentStamped::ConstSharedPtr vbs);
+
+  void gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
+
 
   // ROS publishers and subscribers
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr stim_imu_sub_;
@@ -127,21 +140,40 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::FluidPressure>::SharedPtr barometer_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
   rclcpp::Subscription<sam_msgs::msg::ThrusterAngles>::SharedPtr thruster_vector_sub_;
+  rclcpp::Subscription<sam_msgs::msg::ThrusterRPMs>::SharedPtr thruster_sub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pose_pub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr motion_model_odom_;
-
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr gt_pose_sub_;  
 
   // ROS Control subscribers with message filters, feedback topics come at 10 Hz
-  typedef message_filters::sync_policies::ApproximateTime<smarc_msgs::msg::ThrusterFeedback, smarc_msgs::msg::ThrusterFeedback,
-   smarc_msgs::msg::PercentStamped, smarc_msgs::msg::PercentStamped> SyncPolicy;
+  // typedef message_filters::sync_policies::ApproximateTime<piml_msgs::msg::ThrusterRPMStamped, piml_msgs::msg::ThrusterRPMStamped,
+  //  smarc_msgs::msg::PercentStamped, smarc_msgs::msg::PercentStamped> SyncPolicy;
 
-  typedef message_filters::Synchronizer<SyncPolicy> Sync;
-  std::shared_ptr<Sync> sync_;
+  // typedef message_filters::Synchronizer<SyncPolicy> Sync;
+  // std::shared_ptr<Sync> sync_;
 
-  message_filters::Subscriber<smarc_msgs::msg::ThrusterFeedback> thruster1_sub_;
-  message_filters::Subscriber<smarc_msgs::msg::ThrusterFeedback> thruster2_sub_;
-  message_filters::Subscriber<smarc_msgs::msg::PercentStamped> lcg_sub_;
-  message_filters::Subscriber<smarc_msgs::msg::PercentStamped> vbs_sub_;
+  // message_filters::Subscriber<piml_msgs::msg::ThrusterRPMStamped> thruster1_sub_;
+  // message_filters::Subscriber<piml_msgs::msg::ThrusterRPMStamped> thruster2_sub_;
+  // message_filters::Subscriber<smarc_msgs::msg::PercentStamped> lcg_sub_;
+  // message_filters::Subscriber<smarc_msgs::msg::PercentStamped> vbs_sub_;
+  // Thruster-only sync
+  typedef message_filters::sync_policies::ApproximateTime<piml_msgs::msg::ThrusterRPMStamped,
+  piml_msgs::msg::ThrusterRPMStamped> ThrusterSyncPolicy;
+  typedef message_filters::Synchronizer<ThrusterSyncPolicy> ThrusterSync;
+  std::shared_ptr<ThrusterSync> thruster_sync_;
+
+  // LCG/VBS-only sync
+  typedef message_filters::sync_policies::ApproximateTime<smarc_msgs::msg::PercentStamped,
+  smarc_msgs::msg::PercentStamped> LcgVbsSyncPolicy;
+  typedef message_filters::Synchronizer<LcgVbsSyncPolicy> LcgVbsSync;
+  std::shared_ptr<LcgVbsSync> lcg_vbs_sync_;
+
+  // All four subscribers
+  message_filters::Subscriber<piml_msgs::msg::ThrusterRPMStamped> thruster1_sub_;
+  message_filters::Subscriber<piml_msgs::msg::ThrusterRPMStamped> thruster2_sub_;
+  message_filters::Subscriber<smarc_msgs::msg::PercentStamped>     lcg_sub_;
+  message_filters::Subscriber<smarc_msgs::msg::PercentStamped>     vbs_sub_;
+
 
 
   // TF components
@@ -151,7 +183,8 @@ private:
   std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_static_broadcaster_;
   geometry_msgs::msg::TransformStamped transformStamped;
   std::string name_space_;
-
+  bool init_from_ground_truth_;
+  gtsam::Quaternion gt_init_quat_;
   rclcpp::TimerBase::SharedPtr KeyframeTimer;
 
   // IMU and SBG callback groups
@@ -187,6 +220,10 @@ private:
   bool new_gps_measurement_;
   bool map_initialized_;
   double first_utm_x, first_utm_y, first_utm_z;
+  int number_of_gps_measurements_;
+  int number_of_gps_measurements_for_map_init_ = 5;
+  double sum_lat_, sum_lon_, sum_alt_;
+  double cov_threshold_ =  10.0;
 
   // Barometer
   double first_barometer_measurement_;
@@ -206,8 +243,12 @@ private:
   std::shared_ptr<PreintegratedMotionModel> pmm;
   double dt_;
   bool using_motion_model_;
+  double last_lcg_{0.0};
+  double last_vbs_{0.0};
+  double last_thr1_rpm_{0.0};
+  double last_thr2_rpm_{0.0};
 
-  //Thred stuff
+    //Thred stuff
   // std::thread optimize_thread_;
   // std::mutex  graph_mutex_;
   // std::atomic<bool> stop_thread_{false};
