@@ -19,7 +19,7 @@ public:
             geometry_msgs::msg::TransformStamped odom_to_odom_gt;
    
         get_static_utm_map_gt();
-        log_file_.open("stationary_logs/state_estimator_log.csv");
+        log_file_.open("open_water_logs/state_estimator_log.csv");
         log_file_ << "time, est_pos_x, est_pos_y, est_pos_z, est_quat_w, est_quat_x, est_quat_y, est_quat_z, "
                   << "gt_pos_x, gt_pos_y, gt_pos_z, gt_quat_w, gt_quat_x, gt_quat_y, gt_quat_z\n";
         // gt_sub_.subscribe(this, "core/odom_gt");

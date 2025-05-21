@@ -23,12 +23,12 @@ def umeyama_alignment(P, Q, with_scale=False):
     mu_P, mu_Q   = P.mean(0), Q.mean(0)
     P0,   Q0     = P - mu_P, Q - mu_Q
     C            = P0.T @ Q0 / len(P)
-    U, Σ, Vt     = np.linalg.svd(C)
+    U, sigma, Vt     = np.linalg.svd(C)
     D            = np.eye(3);   D[-1, -1] = np.sign(np.linalg.det(U @ Vt))
     R_opt        = U @ D @ Vt
     if with_scale:
         var_P    = (P0**2).sum()/len(P)
-        s_opt    = (Σ @ D).sum() / var_P
+        s_opt    = (sigma @ D).sum() / var_P
     else:
         s_opt    = 1.0
     t_opt        = mu_Q - s_opt*R_opt@mu_P
@@ -40,15 +40,14 @@ def quat_error_deg(q_est, q_gt):
     Smallest angular distance between two quaternions, in degrees.
     Input shape (..., 4) with scalar-last convention (x,y,z,w).
     """
-    # normalise (in case the estimator drifts a bit)
     q_est = q_est/np.linalg.norm(q_est, axis=-1, keepdims=True)
     q_gt  = q_gt /np.linalg.norm(q_gt , axis=-1, keepdims=True)
     # relative rotation  q_err = q_est * conj(q_gt)
     # scipy expects (x,y,z,w):
     R_err = R.from_quat(q_est)*R.from_quat(q_gt).inv()
-    return np.degrees(R_err.magnitude())          # scalar per sample
+    return np.degrees(R_err.magnitude())          
 
-log_dir   = pathlib.Path("stationary_logs") 
+log_dir   = pathlib.Path("open_water_logs") 
 log_paths = sorted(log_dir.glob("*.csv")) 
 
 
@@ -63,7 +62,6 @@ for p in log_paths:
     df = pd.read_csv(p)
     df.columns = df.columns.str.strip()
 
-    # --- old XYZ error (keep or drop, up to you) ----------------------------
     df["error_x"] = df["est_pos_x"] - df["gt_pos_x"]
     df["error_y"] = df["est_pos_y"] - df["gt_pos_y"]
     df["error_z"] = df["est_pos_z"] - df["gt_pos_z"]
@@ -71,7 +69,6 @@ for p in log_paths:
                                 df["error_y"]**2 +
                                 df["error_z"]**2)
 
-    # ─── NEW block: ATE & ARE  (must be here!) ──────────────────────────────
     P_est = df[["est_pos_x", "est_pos_y", "est_pos_z"]].values
     P_gt  = df[["gt_pos_x",  "gt_pos_y",  "gt_pos_z"] ].values
     _, R_opt, t_opt = umeyama_alignment(P_est, P_gt, with_scale=False)
@@ -82,10 +79,9 @@ for p in log_paths:
     q_est = df[["est_quat_x","est_quat_y","est_quat_z","est_quat_w"]].values
     q_gt  = df[["gt_quat_x", "gt_quat_y", "gt_quat_z", "gt_quat_w"] ].values
     df["rot_err_deg"] = quat_error_deg(q_est, q_gt)
-    # ────────────────────────────────────────────────────────────────────────
 
     df["run"] = run_name
-    runs.append(df)          # ← now the DataFrame *does* have the new cols
+    runs.append(df)          
 
 big = pd.concat(runs, ignore_index=True)
 
@@ -113,7 +109,7 @@ for axis in ["error_x", "error_y", "error_z"]:
             g["time"],
             g[axis],
             label=f"{run} – {axis.split('_')[1].upper()}",
-            color=run_colours[run],    # ← use run color here
+            color=run_colours[run],  
             **style,
             alpha=0.9,
         )
@@ -146,14 +142,10 @@ for axis, label in [("trans_err","ATE [m]"), ("rot_err_deg","ARE [°]")]:
 
 
 
-# 5.  Plot the XY trajectories --------------------------------------------------
 plt.figure(figsize=(8, 8))
 
-# plot *one* ground‑truth trajectory (all files share it, so pick the first)
 plt.plot(runs[0]["gt_pos_x"], runs[0]["gt_pos_y"],
          c="black", lw=2, ls="-.", label="Ground truth")
-
-# overlay every estimator trajectory
 for run, g in big.groupby("run"):
     plt.plot(g["est_pos_x"], g["est_pos_y"],
              lw=1.5, label=f"{run} – est")

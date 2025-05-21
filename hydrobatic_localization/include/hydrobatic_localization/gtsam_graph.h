@@ -22,6 +22,7 @@
 #include <gtsam/nonlinear/ISAM2.h>
 #include <gtsam/nonlinear/BatchFixedLagSmoother.h>
 #include <gtsam/nonlinear/IncrementalFixedLagSmoother.h>
+#include <hydrobatic_localization/ConfigLoader.h>
 
 using namespace gtsam;
 using symbol_shorthand::X; // Pose
@@ -47,7 +48,7 @@ inline gtsam::Key B2(size_t i) {
 using symbol_shorthand::B2; // Bias for SBG
 class GtsamGraph {
 public:
-  GtsamGraph(InferenceStrategy strategy = InferenceStrategy::FullSmoothing);
+  GtsamGraph(InferenceStrategy strategy , const std::string& config_file);
 
   /**
    * @brief Initialize the factor graph and the state with prior factors
@@ -104,31 +105,51 @@ public:
   void optimize();
 
   /**
+  * @brief Get the exrtrinsics of the vehicle
+  * @return the extrinsics as a ExtrinsicsConfig
+  */
+  const ExtrinsicsConfig& getExtrinsics() const {
+     return config_.extrinsics;
+    
+  }
+  /**
    * @brief Get the current state of the vehicle
    * @return the current state as a NavState
    */
-  NavState getCurrentState() const;
+  NavState getCurrentState() const {
+  return previous_state_;
+  }
 
   /**
    * @brief Get the current IMU bias
    * @return the current IMU bias as a ConstantBias
    */
-  imuBias::ConstantBias getCurrentImuBias() const;
+  imuBias::ConstantBias getCurrentImuBias() const {
+  return current_imu_bias_;
+  }
 
   /**
    * @brief Get the current SBG bias
    * @return the current SBG bias as a ConstantBias
    */
-  imuBias::ConstantBias getCurrentSbgBias() const;
+  imuBias::ConstantBias getCurrentSbgBias() const {
+  return current_sbg_bias_ ;
+  }
 
+  double getImuRate() const {
+    return config_.imu.sample_rate;
+  }
+
+  double getSbgRate() const {
+    return config_.sbg.sample_rate;
+  }
   /**
    * @brief Get the current index of the factor graph
    * @return the current index as an integer
    */
-  int getCurrentIndex() const;
-
-  std::shared_ptr<PreintegratedCombinedMeasurements::Params> getImuParams();
-  std::shared_ptr<PreintegratedCombinedMeasurements::Params> getSbgParams();
+  int getCurrentIndex() const {
+  return current_index_;
+  }
 
   /**
    * @brief Integrate the IMU measurements to the preintegrator
@@ -146,11 +167,20 @@ public:
    */
   void integrateSbgMeasurement(const Vector3& acc, const Vector3& gyro, const double dt);
 
-  void setTimeStamp(double time_stamp) {time_stamp_ = time_stamp; }
 
-  double getTij() const { return imu_preintegrated_->deltaTij(); }
+  std::pair<double,double> getTij() const {
+    return {
+      imu_preintegrated_->deltaTij(),
+      sbg_preintegrated_->deltaTij()
+    };
+  }
   void incrementIndex() { current_index_++; }
+
+  std::shared_ptr<PreintegratedCombinedMeasurements::Params>
+  makeParams(const NoiseConfig& n, const Vector3& sensor_offset);
+
 private:
+  Config config_;
   NonlinearFactorGraph graph_;
   Values initial_estimate_;
   int current_index_;
@@ -158,7 +188,6 @@ private:
   bool full_smoothing_;
   imuBias::ConstantBias current_imu_bias_;
   imuBias::ConstantBias current_sbg_bias_;
-  double time_stamp_;
   //ISAM2
   std::shared_ptr<gtsam::ISAM2> isam_;
   InferenceStrategy inference_strategy_;

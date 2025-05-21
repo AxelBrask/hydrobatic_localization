@@ -1,0 +1,38 @@
+# sam.yaml
+imu:
+  gravity:         9.81
+  accel_noise_sigma:     0.002    # m/s^2/√Hz
+  gyro_noise_sigma:      0.0005   # rad/s/√Hz
+  accel_bias_rw_sigma:   0.00014  # m/s^2
+  gyro_bias_rw_sigma:    1.13e-4  
+  integration_error_cov: 1e-4
+  bias_acc_omega_init:   1e-5
+  sample_rate:        0.008       # dt between imu readings
+
+sbg:
+  gravity:         9.81
+  accel_noise_sigma:     0.002
+  gyro_noise_sigma:      0.0005
+  accel_bias_rw_sigma:   0.00014
+  gyro_bias_rw_sigma:    1.13e-4
+  integration_error_cov: 1e-4
+  bias_acc_omega_init:   1e-5
+  sample_rate:        0.02
+
+extrinsics:
+  imu_sensor_pose:  [0.24,  0.0,   -0.036]
+  sbg_sensor_pose:  [0.46,  0.0,    0.002]
+  dvl_sensor_pose:  [0.573, 0.0,   -0.063]
+  gps_sensor_pose:  [0.528, 0.0,    0.071]
+  baro_sensor_pose: [-0.503,0.025,  0.057]
+
+noise_models:
+  prior:
+    pose_sigma:     [1e-6, 1e-6, 1e-6, 1e-6, 1e-6, 1e-6]
+    velocity_sigma: [1e-6, 1e-6, 1e-6]
+    bias_sigma:     [1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3]
+
+  motion_model_sigma: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+  dvl_sigma:           [0.01,  0.01,  0.05]
+  gps_sigma:           [0.5,   0.5,   0.5]
+  barometer_sigma:     [0.001]

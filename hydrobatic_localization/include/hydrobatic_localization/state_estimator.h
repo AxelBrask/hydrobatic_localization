@@ -22,7 +22,7 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include "tf2_ros/static_transform_broadcaster.h"
-#include <piml_msgs/msg/thruster_rpm_stamped.hpp>
+#include <piml_msgs/msg/thruster_rpm_stamped.hpp> 
 #include <sam_msgs/msg/thruster_rp_ms.hpp>
 // Message filters
 #include <message_filters/subscriber.h>
@@ -30,36 +30,18 @@
 #include <message_filters/sync_policies/approximate_time.h>
 // ROS Multithreading
 #include <rclcpp/executors/multi_threaded_executor.hpp>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 
-
-// GTSAM and GeographicLib includes
-#include <gtsam/navigation/CombinedImuFactor.h>
-#include <gtsam/navigation/NavState.h>
-#include <gtsam/navigation/ImuBias.h>
-#include <gtsam/nonlinear/NonlinearFactorGraph.h>
-#include <gtsam/nonlinear/Values.h>
-#include <gtsam/slam/PriorFactor.h>
-#include <gtsam/inference/Symbol.h>
-#include <gtsam/geometry/Pose3.h>
-#include <gtsam/base/Matrix.h>
-#include <gtsam/base/Vector.h>
-#include <gtsam/nonlinear/NonlinearFactor.h>
-#include <gtsam/navigation/GPSFactor.h>
-#include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
-#include <gtsam/slam/dataset.h>
+// GTSAM GeographicLib includes
 #include <boost/optional.hpp>
 #include <GeographicLib/LocalCartesian.hpp>
-#include <vector>
 #include <GeographicLib/UTMUPS.hpp>
 #include <fstream>
-#include <thread>
 #include <chrono>
-#include <mutex>
-#include <condition_variable>
+#include <filesystem> 
 // Include the GtsamGraph class
 #include "hydrobatic_localization/gtsam_graph.h"
 #include "hydrobatic_localization/SamMotionModel.h"
-#include "hydrobatic_localization/SamMotionModelFactor.h"
 
 using namespace gtsam;
 
@@ -109,23 +91,18 @@ private:
   void ThrusterVectorCallback(const sam_msgs::msg::ThrusterAngles::SharedPtr msg);
 
   void KeyframeTimerCallback();
-  /**
-   * @brief Callback function for the control inputs, sets the latest control input, the thruster vector is give my the thruster vector topic. Then integrates the control input
-   * with the SAM motion model
-   * @param thruster1: the feedback from thruster 1
-   * @param thruster2: the feedback from thruster 2
-   * @param lcg: the feedback from the LCG
-   * @param vbs: the feedback from the VBS
-   */
-  // void control_input_callback(const piml_msgs::msg::ThrusterRPMStamped::ConstSharedPtr thruster1,
-  //                             const piml_msgs::msg::ThrusterRPMStamped::ConstSharedPtr thruster2,
-  //                             const smarc_msgs::msg::PercentStamped::ConstSharedPtr lcg,
-  //                             const smarc_msgs::msg::PercentStamped::ConstSharedPtr vbs);
 
+  /**
+   * @brief Callback for adding thruster RPM command to the control sequence queue.
+   * @param msg: thruster RPM command message
+   */
   void thruster_callback(const piml_msgs::msg::ThrusterRPMStamped::ConstSharedPtr t1,
                           const piml_msgs::msg::ThrusterRPMStamped::ConstSharedPtr t2);
 
-
+  /**
+   * @brief Callback for adding LCG/VBS command to the control sequence queue.
+   * @param msg: LCG/VBS command message
+   */
   void lcg_vbs_callback(
     const smarc_msgs::msg::PercentStamped::ConstSharedPtr lcg,
     const smarc_msgs::msg::PercentStamped::ConstSharedPtr vbs);
@@ -145,17 +122,7 @@ private:
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr motion_model_odom_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr gt_pose_sub_;  
 
-  // ROS Control subscribers with message filters, feedback topics come at 10 Hz
-  // typedef message_filters::sync_policies::ApproximateTime<piml_msgs::msg::ThrusterRPMStamped, piml_msgs::msg::ThrusterRPMStamped,
-  //  smarc_msgs::msg::PercentStamped, smarc_msgs::msg::PercentStamped> SyncPolicy;
-
-  // typedef message_filters::Synchronizer<SyncPolicy> Sync;
-  // std::shared_ptr<Sync> sync_;
-
-  // message_filters::Subscriber<piml_msgs::msg::ThrusterRPMStamped> thruster1_sub_;
-  // message_filters::Subscriber<piml_msgs::msg::ThrusterRPMStamped> thruster2_sub_;
-  // message_filters::Subscriber<smarc_msgs::msg::PercentStamped> lcg_sub_;
-  // message_filters::Subscriber<smarc_msgs::msg::PercentStamped> vbs_sub_;
+  // ROS Control subscribers with message filters
   // Thruster-only sync
   typedef message_filters::sync_policies::ApproximateTime<piml_msgs::msg::ThrusterRPMStamped,
   piml_msgs::msg::ThrusterRPMStamped> ThrusterSyncPolicy;
@@ -174,7 +141,7 @@ private:
   message_filters::Subscriber<smarc_msgs::msg::PercentStamped>     lcg_sub_;
   message_filters::Subscriber<smarc_msgs::msg::PercentStamped>     vbs_sub_;
 
-
+  std::string config_file_;
 
   // TF components
   tf2_ros::Buffer tf_buffer_;
@@ -248,12 +215,7 @@ private:
   double last_thr1_rpm_{0.0};
   double last_thr2_rpm_{0.0};
 
-    //Thred stuff
-  // std::thread optimize_thread_;
-  // std::mutex  graph_mutex_;
-  // std::atomic<bool> stop_thread_{false};
-  //Log file
-  std::ofstream logFile_;
+
 
 
   // Helper functions

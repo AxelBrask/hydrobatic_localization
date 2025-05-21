@@ -29,7 +29,7 @@ find_package(pybind11 REQUIRED)
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 find_library(CPPUNITLITE_LIBRARY NAMES CppUnitLite PATHS /usr/local/lib)
 find_package(piml_msgs REQUIRED)
-
+find_package(yaml-cpp REQUIRED)
 # GTSAM stuff
 find_package(GTSAMCMakeTools)
 find_package(GTSAM REQUIRED)
@@ -64,6 +64,7 @@ target_link_libraries(state_estimator
   gtsam
   Eigen3::Eigen
   GeographicLib::GeographicLib
+  yaml-cpp   
   )
 
 # add logger node executable
@@ -81,6 +82,7 @@ ament_target_dependencies(logger
 install(PROGRAMS
 /home/axel/colcon_ws/src/smarc2/external_packages/smarc_modelling/src/smarc_modelling/piml/utils/topic_collector.py
 ${PROJECT_SOURCE_DIR}/scripts/dvl_raw.py
+${PROJECT_SOURCE_DIR}/scripts/sinus_pub.py
 DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -98,6 +100,10 @@ install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}/
 )
 
+ install(
+   DIRECTORY config/
+   DESTINATION share/${PROJECT_NAME}/config
+ )
 
 install(FILES ${PROJECT_SOURCE_DIR}/smarc_modelling/src/smarc_modelling/vehicles/SAM_casadi.py
 DESTINATION lib/${PROJECT_NAME})
