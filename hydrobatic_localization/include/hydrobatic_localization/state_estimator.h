@@ -17,7 +17,9 @@
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_ros/transform_broadcaster.h>
+#include <geometry_msgs/msg/velocity_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <geometry_msgs/msg/point.hpp>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
@@ -108,13 +110,15 @@ private:
     const smarc_msgs::msg::PercentStamped::ConstSharedPtr vbs);
 
   void gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
-
+  
+  void pose_callback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
 
   // ROS publishers and subscribers
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr stim_imu_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sbg_imu_sub_;
   rclcpp::Subscription<smarc_msgs::msg::DVL>::SharedPtr dvl_sub_;
   rclcpp::Subscription<sensor_msgs::msg::FluidPressure>::SharedPtr barometer_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
   rclcpp::Subscription<sam_msgs::msg::ThrusterAngles>::SharedPtr thruster_vector_sub_;
   rclcpp::Subscription<sam_msgs::msg::ThrusterRPMs>::SharedPtr thruster_sub_;
@@ -153,6 +157,7 @@ private:
   bool init_from_ground_truth_;
   gtsam::Quaternion gt_init_quat_;
   rclcpp::TimerBase::SharedPtr KeyframeTimer;
+  geometry_msgs::msg::VelocityStamped init_vel_odom_;
 
   // IMU and SBG callback groups
   rclcpp::CallbackGroup::SharedPtr imu_callback_group_;
@@ -168,6 +173,7 @@ private:
   // Time variables used for integration
   double current_time;
   double last_time_;
+  int kf_interval_hz_;
 
   // For initialization
   std::vector<Rot3> estimated_rotations_;
@@ -199,6 +205,8 @@ private:
   double latest_depth_measurement_;
   double static_offset_;
   bool baro_calibrated = false;
+  double depth0_;
+  double z_baro0_;
 
   // Previous state and bias
   NavState previous_state_;

@@ -29,13 +29,13 @@ class DVLConverterNode(Node):
         
 
         self.sub = self.create_subscription(
-            String, 'sam/core/dvl_raw_output', self.cb_raw, 10
+            String, '/sam/core/dvl_raw_output', self.cb_raw, 10
         )
         self.imu_sub = self.create_subscription(
             Imu, '/sam/core/imu', self.imu_cb, 10
         )
 
-        self.pub = self.create_publisher(DVL, '/sam/core/dvl_new', 10)
+        self.pub = self.create_publisher(DVL, '/sam/core/dvl_3beams', 10)
         self.raw_pub = self.create_publisher(
             Vector3, '/sam/core/dvl_baselink_raw', 10
         )
@@ -51,14 +51,18 @@ class DVLConverterNode(Node):
             return
 
         if data.get('velocity_valid', False):
+            self.get_logger().info(f' fom for velocity valid {data.get("fom")}')
             vx, vy, vz = data['vx'], data['vy'], data['vz']
         else:
+            
             beams = [b for b in data.get('transducers', []) if b.get('beam_valid')]
             if len(beams) < 3:
+                self.get_logger().info(f' fom for < 3 beams {data.get("fom")}')
                 self.get_logger().warn(f'{len(beams)} valid beams (<3); skipping')
                 return
 
-
+            self.get_logger().info(f' fom for 3 beams {data.get("fom")}')
+            # if data.get("fom")>1: return
             ids    = [b['id'] for b in beams]
             b_vels = np.array([b['velocity'] for b in beams])
             sa, ca = np.sin(self.beam_angle), np.cos(self.beam_angle)

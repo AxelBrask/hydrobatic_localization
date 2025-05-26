@@ -3,6 +3,7 @@
 // #include <message_filters/subscriber.h>
 // #include <message_filters/synchronizer.h>
 // #include <message_filters/sync_policies/approximate_time.h>
+#include <filesystem>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_ros/buffer.h>
@@ -17,9 +18,11 @@ public:
     tf_listener_(tf_buffer_) {
         this->set_parameter(rclcpp::Parameter("use_sim_time", true));
             geometry_msgs::msg::TransformStamped odom_to_odom_gt;
-   
+        this->declare_parameter<std::string>("folder", "logs");
+        this->get_parameter("folder", folder_);
+        std::filesystem::create_directories(folder_);
         get_static_utm_map_gt();
-        log_file_.open("open_water_logs/state_estimator_log.csv");
+        log_file_.open(folder_ + "/state_estimator_log.csv");
         log_file_ << "time, est_pos_x, est_pos_y, est_pos_z, est_quat_w, est_quat_x, est_quat_y, est_quat_z, "
                   << "gt_pos_x, gt_pos_y, gt_pos_z, gt_quat_w, gt_quat_x, gt_quat_y, gt_quat_z\n";
         // gt_sub_.subscribe(this, "core/odom_gt");
@@ -130,7 +133,7 @@ private:
 
     // message_filters::Subscriber<nav_msgs::msg::Odometry> gt_sub_;
     // message_filters::Subscriber<nav_msgs::msg::Odometry> est_sub_;
-
+    std::string folder_;
     std::ofstream log_file_;
     tf2_ros::Buffer tf_buffer_;
     tf2_ros::TransformListener tf_listener_;

@@ -55,7 +55,7 @@ public:
    * @param initial_rot: the initial rotation of the vehicle
    * @param initial_position: the initial position of the vehicle in the odom frame
    */
-  void initGraphAndState(const Rot3& initial_rot, const Point3& initial_position);
+  void initGraphAndState(const Rot3& initial_rot, const Point3& initial_position, const Vector3& initial_velocity);
 
 
   /**

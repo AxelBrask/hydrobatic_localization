@@ -66,10 +66,10 @@ GtsamGraph::GtsamGraph(InferenceStrategy strategy,const std::string& config_file
 }
 
 
-void GtsamGraph::initGraphAndState(const Rot3& initial_rot, const Point3& initial_position) 
+void GtsamGraph::initGraphAndState(const Rot3& initial_rot, const Point3& initial_position, const Vector3& initial_velocity ) 
 {
   Pose3 prior_pose(initial_rot, initial_position);
-  Vector3 prior_velocity = Vector3::Zero();
+  Vector3 prior_velocity = initial_velocity;
   imuBias::ConstantBias prior_imu_bias, prior_sbg_bias;
 
   auto pose_noise = noiseModel::Diagonal::Sigmas(config_.noise_models.prior.pose_sigma);
@@ -81,13 +81,13 @@ void GtsamGraph::initGraphAndState(const Rot3& initial_rot, const Point3& initia
   graph_.addPrior<Pose3>(X(0), prior_pose, pose_noise);
   graph_.addPrior<Vector3>(V(0), prior_velocity, velocity_noise);
   graph_.addPrior<imuBias::ConstantBias>(B(0), prior_imu_bias, bias_noise);
-  graph_.addPrior<imuBias::ConstantBias>(B2(0), prior_sbg_bias, bias_noise); 
+  // graph_.addPrior<imuBias::ConstantBias>(B2(0), prior_sbg_bias, bias_noise); 
 
   // Insert initial estimates
   initial_estimate_.insert(X(0), prior_pose);
   initial_estimate_.insert(V(0), prior_velocity);
   initial_estimate_.insert(B(0), prior_imu_bias);
-  initial_estimate_.insert(B2(0), prior_sbg_bias);
+  // initial_estimate_.insert(B2(0), prior_sbg_bias);
 
   // Save the initial state.
   previous_state_ = NavState(prior_pose, prior_velocity);
@@ -142,7 +142,8 @@ NavState GtsamGraph::addSbgFactor()
   graph_.add(imu_factor);
   NavState predicted_state = sbg_preintegrated_->predict(previous_state_, current_sbg_bias_);
 
-
+  // initial_estimate_.insert(X(current_index_+1), predicted_state.pose());
+  // initial_estimate_.insert(V(current_index_+1), predicted_state.v());
   initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
   
   return predicted_state;
@@ -227,12 +228,12 @@ void GtsamGraph::optimize() {
     }
       Values result = fixed_lag_smoother_->calculateEstimate();
       current_imu_bias_ = result.at<imuBias::ConstantBias>(B(current_index_));
-      current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_));
+      // current_sbg_bias_ = result.at<imuBias::ConstantBias>(B2(current_index_));
       previous_state_ = NavState(result.at<Pose3>(X(current_index_)), result.at<Vector3>(V(current_index_)));
       graph_.resize(0);
       initial_estimate_.clear();
       imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
-      sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
+      // sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
   } 
 
 

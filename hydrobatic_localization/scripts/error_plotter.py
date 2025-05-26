@@ -47,7 +47,7 @@ def quat_error_deg(q_est, q_gt):
     R_err = R.from_quat(q_est)*R.from_quat(q_gt).inv()
     return np.degrees(R_err.magnitude())          
 
-log_dir   = pathlib.Path("open_water_logs") 
+log_dir   = pathlib.Path("turbo_turn") 
 log_paths = sorted(log_dir.glob("*.csv")) 
 
 
@@ -156,10 +156,10 @@ plt.legend(fontsize=8); plt.axis("equal"); plt.tight_layout(); plt.show()
 
 
 plt.figure(figsize=(8, 6))
-sns.boxplot(data=big, x="run", y="error_total", fliersize=1)
+sns.boxplot(data=big, x="run", y="trans_err", fliersize=1)
 plt.xlabel("Run")
-plt.ylabel("Total |position error| [m]")
-plt.title("Absolute position‑error distribution per run")
+plt.ylabel("Absolut trajectory error [m]")
+plt.title("Absolute trajectory‑error distribution per run")
 plt.tight_layout()
 plt.show()
 
