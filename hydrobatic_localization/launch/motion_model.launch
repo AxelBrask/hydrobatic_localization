@@ -1,0 +1,13 @@
+<launch>
+    <arg name ="robot_name" default ="sam"/>
+    <arg name="use_sim_time" default="true"/>
+    <arg name = "bag_file" default = "/home/axel/colcon_ws/may_22/rosbag2_2025_05_22-15_20_12/"/>
+    <executable cmd="ros2 bag play $(var bag_file) --clock" output="screen" />
+    <node pkg="hydrobatic_localization" exec="motion_model" output="screen" namespace = "$(var robot_name)">
+        <param name = "use_sim_time" value = "$(var use_sim_time)"/>
+    </node>
+
+    <node pkg="hydrobatic_localization" exec="topic_collector.py" output="screen" namespace = "$(var robot_name)">
+        <param name = "use_sim_time" value = "$(var use_sim_time)"/>
+    </node>
+</launch>
