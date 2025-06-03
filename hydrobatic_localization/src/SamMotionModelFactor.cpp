@@ -15,58 +15,37 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
           vectorState.tail(6) = control_list_[0].u;
       }
       //print control list
-      // std::cout << "Control list: " << std::endl;
       for (const auto& control : control_list_) {
-          std::cout << "Timestamp: " << control.timestamp << ", Control: " << control.u.transpose() << std::endl;
       }
       // If there are no control inputs, return the input state.
       if (control_list_.empty()) {  
           return state;
       }
 
-      std::cout << "start time: " << start_time << ", end time: " << end_time << std::endl;
       //print the control list
       Eigen::VectorXd integratedState = vectorState;
-      std::cout<<" start of integrated state: " << integratedState.transpose() << std::endl;
-      // std::cout << " Size of integrated state: " << integratedState.size() << std::endl;
+
       double currentTime = start_time;
       size_t idx = 0;  // Index to track current control
 
       // Integrate from start_time to the first control input if there's a gap.
       if (idx < control_list_.size() && control_list_[0].timestamp > currentTime) {
           double dt = control_list_[0].timestamp - currentTime;
-          std::cout << "Integrating from start_time to first control input" << std::endl;
-           std::cout << "Control used: " << integratedState.tail(6).transpose() 
-                    << ", timestamp: " << prev_control_.timestamp << " dt: " << dt << std::endl;
           integratedState = sam_motion_model_->integrateState(integratedState, prev_control_.u, dt);
           currentTime = control_list_[0].timestamp;
-          std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
-// 
       }
 
       // Integrate over the control sequence until reaching end_time.
       for (; idx < control_list_.size()-1 && control_list_[idx+1].timestamp <= end_time; idx++) {
-          std::cout << "Integrating between control inputs" << std::endl;
           double dt = control_list_[idx+1].timestamp - currentTime;
-                  std::cout << "Control used: " << integratedState.tail(6).transpose() 
-                  << ", timestamp: " << control_list_[idx].timestamp << " dt: " << dt << std::endl;
           integratedState = sam_motion_model_->integrateState(integratedState, control_list_[idx].u, dt);
           currentTime = control_list_[idx+1].timestamp;
-
-          std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
-
       }
 
       // Integrate from the last control to end_time if necessary.
       double dt = end_time - control_list_[idx].timestamp;
       if (dt > 0) {
-          std::cout << "Integrating from last control input to end_time" << std::endl;
-          std::cout << "Control used: " << integratedState.tail(6).transpose() 
-                    << ", timestamp: " << control_list_.back().timestamp << " dt: " << dt << std::endl;
           integratedState = sam_motion_model_->integrateState(integratedState, control_list_.back().u, dt);
-          
-          //           std::cout<< "integrated state: " << integratedState.transpose() << std::endl;
-          std::cout << "Final integrated state: " << integratedState.transpose() << std::endl;
       }
 
       // Convert the integrated state vector back to a NavState.
@@ -75,7 +54,7 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
       deltaPose_ = state.pose().between(integratedNavState.pose());
       deltaVel_ = integratedNavState.velocity() - state.velocity();
       prev_integrated_control_.u = integratedState.tail(6);
-
+      motion_model_prediction_state_ = integratedNavState; // Store the predicted state for later use
     return integratedNavState;
 
 
@@ -213,7 +192,6 @@ Vector SamMotionModelFactor::evaluateError(
     nom_velocity2 = velocity2;
     nominal_error_.resize(9);
     nominal_error_ << pose_err, vel_err;
-    // 2) On *first* call: compute & stash *all* jacobians:
     stored_H1_ = gtsam::numericalDerivative11<Vector,Pose3>(
       [this,pose2,velocity1,velocity2](const Pose3& p1){
         return this->rawError(p1, pose2, velocity1, velocity2);
@@ -229,7 +207,6 @@ Vector SamMotionModelFactor::evaluateError(
         return this->rawError(pose1, pose2, v1, velocity2);
       }, velocity1);
 
-    // we know ∂err/∂v2 is trivial:
     stored_H4_.setZero(9,3);
     stored_H4_.block<3,3>(6,0) = Matrix3::Identity();
 
@@ -239,7 +216,6 @@ Vector SamMotionModelFactor::evaluateError(
     error << nominal_error_;
   }
   else{
-  // 3) On subsequent calls: build your Taylor‐approximation:
   Vector err = nominal_error_
              + stored_H1_ * Pose3::Logmap(nom_Ti.inverse().compose(Ti))
              + stored_H2_ * Pose3::Logmap(nom_Tj.inverse().compose(Tj))
@@ -247,7 +223,6 @@ Vector SamMotionModelFactor::evaluateError(
              + stored_H4_ * (velocity2 - nom_velocity2);
   error << err;
   }
-  // 4) Now, if the solver *did* request H1…H4, just hand out your cached blocks:
   if(H1) *H1  = gtsam::numericalDerivative11<Vector,Pose3>(
       [this,pose2,velocity1,velocity2](const Pose3& p1){
         return this->rawError(p1, pose2, velocity1, velocity2);

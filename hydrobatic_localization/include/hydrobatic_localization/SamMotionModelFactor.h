@@ -34,7 +34,8 @@ class PreintegratedMotionModel
   gtsam::Pose3 deltaPose_;       // Relative pose from i -> i+1
   gtsam::Vector3 deltaVel_;      // Relative velocity
   double deltaT_;  
-  controlSequence prev_integrated_control_;              
+  controlSequence prev_integrated_control_;            
+  NavState motion_model_prediction_state_; // The state predicted by the motion model  
 
   public:
   /**
@@ -110,6 +111,10 @@ class PreintegratedMotionModel
      */
     gtsam::Vector3 getDeltaVel() const {
         return deltaVel_;
+    }
+
+    NavState getMotionModelPredictionState() const {
+        return motion_model_prediction_state_;
     }
 
 

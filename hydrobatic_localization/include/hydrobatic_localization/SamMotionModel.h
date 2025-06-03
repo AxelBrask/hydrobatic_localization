@@ -59,6 +59,7 @@ private:
     double dt_;
     py::object sam_object_;
     py::object dynamics_func_;
+    py::object dt_func_;
 };
 
 #endif // SAMMOTIONMODEL_H

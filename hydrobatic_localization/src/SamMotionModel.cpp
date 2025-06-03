@@ -5,9 +5,10 @@ SamMotionModelWrapper::SamMotionModelWrapper(double dt): dt_(dt)
   
 
     {
-        py::module motion_model = py::module::import("smarc_modelling.vehicles.SAM_casadi");
-        sam_object_ = motion_model.attr("SAM_casadi")();
-        dynamics_func_ = sam_object_.attr("dynamics")();
+        py::module motion_model = py::module::import("smarc_modelling.vehicles.SAM_PIML");
+        sam_object_ = motion_model.attr("SAM_PIML")();
+        dynamics_func_ = sam_object_.attr("dynamics");
+        dt_func_ = sam_object_.attr("update_dt");
     }
 
 }
@@ -15,8 +16,11 @@ SamMotionModelWrapper::SamMotionModelWrapper(double dt): dt_(dt)
 Eigen::VectorXd SamMotionModelWrapper::Dynamics(const Eigen::VectorXd& x, const Eigen::VectorXd& u, double dt) const {
 
   try {
-    py::object x_dot_py = dynamics_func_(x, u, dt);
-    return x_dot_py.cast<Eigen::VectorXd>();
+    dt_func_(dt);
+    py::object x_dot_py = dynamics_func_(x, u);
+    py::tuple x_dot_tuple = x_dot_py.cast<py::tuple>();
+
+    return x_dot_tuple[0].cast<Eigen::VectorXd>();
   } catch (const py::error_already_set& e) {
     std::cerr<<"[ERROR] Python exception: "<<e.what()<<std::endl;
     throw;

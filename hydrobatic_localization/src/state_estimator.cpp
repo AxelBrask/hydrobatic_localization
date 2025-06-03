@@ -189,7 +189,7 @@ void StateEstimator::gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
         vel_in.header.stamp,              // time
         tf2::durationFromSec(0.1)));          // timeout
   } catch (const tf2::TransformException &ex) {
-    RCLCPP_WARN(get_logger(), "twist transform failed: %s", ex.what());
+        RCLCPP_WARN(this->get_logger(), "TF lookup (odom←base_link) failed at init: %s", ex.what());
     return;
   }
   map_initialized_ = true;
