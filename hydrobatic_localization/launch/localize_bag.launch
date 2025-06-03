@@ -6,7 +6,7 @@
     <arg name="inference_strategy" default="FullSmoothing"/>
     <arg name = "kf_interval_hz" default = "10"/>
     <arg name = "init_from_ground_truth" default = "false"/>    
-    <arg name = "bag_file" default = "/home/axel/colcon_ws/may_22/rosbag2_2025_05_22-15_20_12/"/>
+    <arg name = "bag_file" default = "/home/axel/colcon_ws/may_22/rosbag2_2025_05_22-15_22_01"/>
     <executable cmd="ros2 bag play $(var bag_file) --clock" output="screen" />
     <node pkg="hydrobatic_localization" exec="state_estimator" output="screen" namespace = "$(var robot_name)">
         <param name = "config_file" value = "$(var config_file)"/>
@@ -20,4 +20,10 @@
     <node pkg="hydrobatic_localization" exec="dvl_raw.py" output="screen" namespace = "$(var robot_name)">
         <param name = "use_sim_time" value = "$(var use_sim_time)"/>
     </node>
+
+    <node pkg="hydrobatic_localization" exec="topic_collector.py" output="screen" namespace = "$(var robot_name)">
+        <param name = "use_sim_time" value = "$(var use_sim_time)"/>
+        <param name = "robot_name" value = "$(var robot_name)"/>
+    </node>
+    
 </launch>

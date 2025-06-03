@@ -5,7 +5,7 @@ StateEstimator::StateEstimator()
   : Node("state_estimator"), tf_buffer_(this->get_clock()), tf_listener_(tf_buffer_),
     tf_broadcast_(this), number_of_imu_measurements(0), is_graph_initialized_(false),
     new_dvl_measurement_(false), new_gps_measurement_(false), map_initialized_(false),
-    first_barometer_measurement_(0.0), new_barometer_measurement_received_(false), atmospheric_pressure_(101325.0),
+    first_barometer_measurement_(0.0), new_barometer_measurement_received_(false), atmospheric_pressure_(100800.0),
     dt_(0.01)
 {
 
@@ -24,6 +24,9 @@ StateEstimator::StateEstimator()
 
   this->declare_parameter<int>("kf_interval_hz", 10);
   this->get_parameter("kf_interval_hz", kf_interval_hz_);
+  bool use_sim_time_;
+  // this->declare_parameter<bool>("use_sim_time", false);
+  this->get_parameter("use_sim_time", use_sim_time_);
 
 
   std::string config_file;
@@ -34,7 +37,6 @@ StateEstimator::StateEstimator()
     config_file = pkg_share + "/config/" + config_file_;
   }
 
-  this->set_parameter(rclcpp::Parameter("use_sim_time", true));
   RCLCPP_INFO(this->get_logger(), "Loading config from %s", config_file.c_str());
 
   name_space_ = this->get_namespace();
@@ -56,28 +58,26 @@ StateEstimator::StateEstimator()
   }
   // // Subscriptions for sensors
   stim_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
-      sam_msgs::msg::Topics::STIM_IMU_TOPIC, 10,
+      sam_msgs::msg::Topics::STIM_IMU_TOPIC, 100,
       std::bind(&StateEstimator::imu_callback, this, std::placeholders::_1));
 
-  // sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
-      // sam_msgs::msg::Topics::SBG_IMU_TOPIC, 10,
-      // std::bind(&StateEstimator::sbg_callback, this, std::placeholders::_1));
+  sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
+      sam_msgs::msg::Topics::SBG_IMU_TOPIC, 100,
+      std::bind(&StateEstimator::sbg_callback, this, std::placeholders::_1));
 
-  dvl_sub_ = this->create_subscription<smarc_msgs::msg::DVL>(
-       "/sam/core/dvl_3beams", 10, /*use "/sam/core/dvl_3beams" for real sam otherwise use */
-      std::bind(&StateEstimator::dvl_callback, this, std::placeholders::_1));
-
+  //  dvl_sub_ = this->create_subscription<smarc_msgs::msg::DVL>(
+  //       "/sam/core/dvl_3beams", 10, /*use "/sam/core/dvl_3beams" for real sam otherwise use */
+  //     std::bind(&StateEstimator::dvl_callback, this, std::placeholders::_1));
+// 
   barometer_sub_ = this->create_subscription<sensor_msgs::msg::FluidPressure>(
       sam_msgs::msg::Topics::PRESS_DEPTH300_TOPIC, 10,     /*If sim: use depth20 on real sam use depth300*/
       std::bind(&StateEstimator::barometer_callback, this, std::placeholders::_1));
 
-  // pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-      // dead_reckoning_msgs::msg::Topics::DR_DEPTH_POSE_TOPIC, 10,
-      // std::bind(&StateEstimator::pose_callback, this, std::placeholders::_1));
 // 
   gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
       smarc_msgs::msg::Topics::GPS_TOPIC, 10,
       std::bind(&StateEstimator::gps_callback, this, std::placeholders::_1));
+
 
   //Subscribe to gt odometry if init_from_ground_truth_ is true
   if(init_from_ground_truth_)
@@ -87,15 +87,21 @@ StateEstimator::StateEstimator()
       std::bind(&StateEstimator::gt_odom_callback, this, std::placeholders::_1));
   }
   
+    velocity_pub_ = this->create_publisher<geometry_msgs::msg::TwistStamped>(
+      "gt_twist", 10);
+
+    velocity_sub_ = this->create_subscription<geometry_msgs::msg::TwistStamped>(
+      "/mocap/sam_mocap2/velocity", 10,
+      std::bind(&StateEstimator::gt_velocity_callback, this, std::placeholders::_1)); 
 
   if(using_motion_model_)
   {
     thruster_vector_sub_ = this->create_subscription<sam_msgs::msg::ThrusterAngles>(
-      "/piml/thrust_vector_cmd", 10,
+      "piml/thrust_vector_cmd", 10,
       std::bind(&StateEstimator::ThrusterVectorCallback, this, std::placeholders::_1));
 
-    thruster1_sub_.subscribe(this, "/piml/thruster1_cmd");
-    thruster2_sub_.subscribe(this, "/piml/thruster2_cmd");
+    thruster1_sub_.subscribe(this, "piml/thruster1_cmd");
+    thruster2_sub_.subscribe(this, "piml/thruster2_cmd");
 
     thruster_sync_ = std::make_shared<ThrusterSync>(
       ThrusterSyncPolicy(10), thruster1_sub_, thruster2_sub_);
@@ -103,8 +109,8 @@ StateEstimator::StateEstimator()
     thruster_sync_->registerCallback(
       std::bind(&StateEstimator::thruster_callback, this, std::placeholders::_1, std::placeholders::_2));
 
-    lcg_sub_.subscribe(this, "/piml/lcg_fb");
-    vbs_sub_.subscribe(this, "/piml/vbs_fb");
+    lcg_sub_.subscribe(this, "piml/lcg_fb");
+    vbs_sub_.subscribe(this, "piml/vbs_fb");
 
     lcg_vbs_sync_ = std::make_shared<LcgVbsSync>(
       LcgVbsSyncPolicy(10), lcg_sub_, vbs_sub_);
@@ -128,38 +134,105 @@ StateEstimator::StateEstimator()
   gtsam_graph_ = std::make_unique<GtsamGraph>(inference_strategy, config_file);
   pmm = std::make_unique<PreintegratedMotionModel>(dt_);
 
+  std::random_device rd;
+  noise_generator_ = std::default_random_engine(rd());
+  double sigma_lin = 0.05;   // e.g. 0.05 m/s noise on each linear axis
+  noise_lin_x_ = std::normal_distribution<double>(0.0, sigma_lin);
+  noise_lin_y_ = std::normal_distribution<double>(0.0, sigma_lin);
+  noise_lin_z_ = std::normal_distribution<double>(0.0, sigma_lin);
+
+}
+
+void StateEstimator::gt_velocity_callback(const geometry_msgs::msg::TwistStamped::SharedPtr msg)
+{
+  geometry_msgs::msg::VelocityStamped vel_mocap;
+  vel_mocap.header = msg->header;
+  vel_mocap.velocity = msg->twist;    
+
+  geometry_msgs::msg::TransformStamped T_odom_from_base;
+  try {
+    T_odom_from_base = tf_buffer_.lookupTransform(
+      "sam_mocap2/base_link",                     
+      vel_mocap.header.frame_id, 
+      rclcpp::Time(0),           
+      tf2::durationFromSec(0.1)  
+    );
+  } catch (tf2::TransformException &ex) {
+    RCLCPP_WARN(this->get_logger(), "TF lookup failed: %s", ex.what());
+    return;
+  }
+
+  tf2::Quaternion q_odom_from_base;
+  tf2::fromMsg(T_odom_from_base.transform.rotation, q_odom_from_base);
+  tf2::Matrix3x3 R_odom_from_mocap(q_odom_from_base);
+
+  tf2::Vector3 v_base(
+    vel_mocap.velocity.linear.x,
+    vel_mocap.velocity.linear.y,
+    vel_mocap.velocity.linear.z
+  );
+  tf2::Vector3 v_odom = R_odom_from_mocap * v_base;
+
+  tf2::Vector3 w_base(
+    vel_mocap.velocity.angular.x,
+    vel_mocap.velocity.angular.y,
+    vel_mocap.velocity.angular.z
+  );
+  tf2::Vector3 w_odom = R_odom_from_mocap * w_base;
+
+
+
+  geometry_msgs::msg::TwistStamped vel_odom;
+  vel_odom.header.stamp = vel_mocap.header.stamp;
+  vel_odom.header.frame_id = "sam_mocap2/base_link"; // Odom frame in ENU
+  vel_odom.twist.linear.x  = v_odom.x();
+  vel_odom.twist.linear.y  = v_odom.y();
+  vel_odom.twist.linear.z  = v_odom.z();
+  vel_odom.twist.angular.x = w_odom.x();
+  vel_odom.twist.angular.y = w_odom.y();
+  vel_odom.twist.angular.z = w_odom.z();
+  double noisy_lin_x = v_odom.x() + noise_lin_x_(noise_generator_);
+  double noisy_lin_y = v_odom.y()+ noise_lin_y_(noise_generator_);
+  double noisy_lin_z = v_odom.z()+ noise_lin_z_(noise_generator_);
+  gt_velocity_ = gtsam::Vector3(noisy_lin_x, noisy_lin_y, noisy_lin_z);
 }
 
 void StateEstimator::gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
-  if (map_initialized_) return;
-  geometry_msgs::msg::VelocityStamped vel_in;  
+  geometry_msgs::msg::VelocityStamped vel_in;
   vel_in.header  = msg->header;             // stamp + frame_id
   vel_in.velocity = msg->twist.twist;       // copy both linear & angular
-  geometry_msgs::msg::TransformStamped ned_to_enu;
-  ned_to_enu.header.stamp    = this->get_clock()->now();
+  if (!map_initialized_)
+  {
+  
+      geometry_msgs::msg::TransformStamped ned_to_enu;
+      ned_to_enu.header.stamp    = this->get_clock()->now();
   ned_to_enu.header.frame_id = "mocap";          // NED 
   ned_to_enu.child_frame_id  = "map";            // ENU 
 
-  ned_to_enu.transform.rotation.x = 0.70710678;
-  ned_to_enu.transform.rotation.y = 0.70710678;
-  ned_to_enu.transform.rotation.z = 0.0;
-  ned_to_enu.transform.rotation.w = 0.0;
+      // 180° rotation about X to go from NED to ENU
+      ned_to_enu.transform.rotation.x = 0.70710678;
+      ned_to_enu.transform.rotation.y = 0.70710678;
+      ned_to_enu.transform.rotation.z = 0.0;
+      ned_to_enu.transform.rotation.w = 0.0;
 
-  tf_static_broadcaster_->sendTransform(ned_to_enu);
-  geometry_msgs::msg::TransformStamped map_to_blgt;
-  try {
-      map_to_blgt = tf_buffer_.lookupTransform(
+      tf_static_broadcaster_->sendTransform(ned_to_enu);
+      RCLCPP_INFO(this->get_logger(), "NED→ENU static transform published");
+
+      // 2b) Now look up “map” ← “sam_mocap2/base_link” (so we know where base_link sits in ENU).
+      geometry_msgs::msg::TransformStamped map_to_blgt;
+      try {
+        map_to_blgt = tf_buffer_.lookupTransform(
           "map",                     
           "sam_mocap2/base_link",
           tf2::TimePointZero,     
           tf2::durationFromSec(0.5));
-  } catch (const tf2::TransformException &ex) {
+      } catch (const tf2::TransformException &ex) {
       RCLCPP_ERROR(this->get_logger(), "TF lookup failed: %s", ex.what());
       return;                                 // try again next packet
-  }
-  map_to_blgt.header.frame_id = "map";
-  map_to_blgt.child_frame_id  = "odom";
+      }
+      map_to_blgt.header.frame_id = "map";
+      map_to_blgt.child_frame_id  = "odom";
   tf2::Quaternion q = tf2::Quaternion(map_to_blgt.transform.rotation.x,
                                      map_to_blgt.transform.rotation.y,
                                      map_to_blgt.transform.rotation.z,
@@ -167,7 +240,7 @@ void StateEstimator::gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
   
 
   // tf2::Quaternion q_ned_to_enu; 
-  tf2::Quaternion q_ned_to_enu;
+  tf2::Quaternion q_ned_to_enu; 
   q_ned_to_enu.setRPY(M_PI, 0.0, 0.0);     
   tf2::Quaternion q_enu =  q * q_ned_to_enu ;
   q_enu.normalize();
@@ -179,22 +252,87 @@ void StateEstimator::gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
   
   gt_init_quat_ = gtsam::Quaternion(q_enu.w(), q_enu.x(), q_enu.y(), q_enu.z());
   tf_static_broadcaster_->sendTransform(map_to_blgt);
+
+  geometry_msgs::msg::TransformStamped body_to_odom_init;
   try {
-    tf2::doTransform(
-      vel_in,
-      init_vel_odom_,
-      tf_buffer_.lookupTransform(
-        "odom",                               // target
-        vel_in.header.frame_id,           // source
-        vel_in.header.stamp,              // time
-        tf2::durationFromSec(0.1)));          // timeout
-  } catch (const tf2::TransformException &ex) {
-        RCLCPP_WARN(this->get_logger(), "TF lookup (odom←base_link) failed at init: %s", ex.what());
+    body_to_odom_init = tf_buffer_.lookupTransform(
+      "odom",                     
+      vel_in.header.frame_id, 
+      rclcpp::Time(0),            
+      tf2::durationFromSec(0.1)   
+    );
+  } catch (tf2::TransformException &ex) {
+    RCLCPP_WARN(this->get_logger(), "TF lookup failed: %s", ex.what());
     return;
   }
-  map_initialized_ = true;
-  gt_pose_sub_.reset();                      
-  
+
+      // Extract quaternion from body_to_odom_init:
+      tf2::Quaternion q_body_to_odom_init;
+      tf2::fromMsg(body_to_odom_init.transform.rotation, q_body_to_odom_init);
+      tf2::Matrix3x3 R_body_to_odom_init(q_body_to_odom_init);
+
+      // Rotate linear velocity:
+      const auto & lin_in_init = vel_in.velocity.linear;
+      tf2::Vector3 v_body_init(lin_in_init.x, lin_in_init.y, lin_in_init.z);
+      tf2::Vector3 v_odom_init = R_body_to_odom_init * v_body_init;
+
+      // Rotate angular velocity (if desired):
+      const auto & ang_in_init = vel_in.velocity.angular;
+      tf2::Vector3 w_body_init(ang_in_init.x, ang_in_init.y, ang_in_init.z);
+      tf2::Vector3 w_odom_init = R_body_to_odom_init * w_body_init;
+
+      init_vel_odom_.header.stamp    = vel_in.header.stamp;
+      init_vel_odom_.header.frame_id = "odom";
+      init_vel_odom_.velocity.linear.x  = v_odom_init.x();
+      init_vel_odom_.velocity.linear.y  = v_odom_init.y();
+      init_vel_odom_.velocity.linear.z  = v_odom_init.z();
+      init_vel_odom_.velocity.angular.x = w_odom_init.x();
+      init_vel_odom_.velocity.angular.y = w_odom_init.y();
+      init_vel_odom_.velocity.angular.z = w_odom_init.z();
+
+      map_initialized_ = true;
+      return;
+    }  
+
+    //
+    geometry_msgs::msg::TransformStamped body_to_odom;
+    try {
+      body_to_odom = tf_buffer_.lookupTransform(
+        "odom",                       // target
+        msg->child_frame_id,          // source = base_link
+        tf2::TimePointZero,           // latest available
+        tf2::durationFromSec(0.1)     // timeout
+      );
+    } catch (const tf2::TransformException &ex) {
+      RCLCPP_WARN(get_logger(), "TF lookup (odom←base_link) failed: %s", ex.what());
+      return;
+    }
+
+    //
+    tf2::Quaternion q_body_to_odom;
+    tf2::fromMsg(body_to_odom.transform.rotation, q_body_to_odom);
+    tf2::Matrix3x3 R_body_to_odom(q_body_to_odom);
+
+    // Rotate linear velocity:
+    const auto & lin = vel_in.velocity.linear;
+    tf2::Vector3 v_body(lin.x, lin.y, lin.z);
+    tf2::Vector3 v_odom = R_body_to_odom * v_body;
+
+    // Rotate angular velocity if needed:
+    const auto & ang = vel_in.velocity.angular;
+    tf2::Vector3 w_body(ang.x, ang.y, ang.z);
+    tf2::Vector3 w_odom = R_body_to_odom * w_body;
+
+    const auto & T = body_to_odom.transform.translation;
+    const auto & R_msg = body_to_odom.transform.rotation;
+    gtsam::Pose3 pose_in_odom(
+      gtsam::Rot3::Quaternion(R_msg.w, R_msg.x, R_msg.y, R_msg.z),
+      gtsam::Point3(T.x, T.y, T.z)
+    );
+    gtsam::Vector3 vel_vec(v_odom.x(), v_odom.y(), v_odom.z());
+    // gt_navstate_ = gtsam::NavState(pose_in_odom, vel_vec);
+    gt_pose_ = pose_in_odom;
+    gt_pose_sub_.reset(); 
 }
 
 
@@ -208,7 +346,7 @@ void StateEstimator::ThrusterVectorCallback(const sam_msgs::msg::ThrusterAngles:
       
   double timestamp = rclcpp::Time(msg->header.stamp).seconds();
   pmm -> controlToList(u,timestamp,true);
-  RCLCPP_INFO(this->get_logger(), "Thruster vector callback: %f %f", msg->thruster_vertical_radians, msg->thruster_horizontal_radians);
+  // RCLCPP_INFO(this->get_logger(), "Thruster vector callback: %f %f", msg->thruster_vertical_radians, msg->thruster_horizontal_radians);
   }
 }
 // thrusters-only
@@ -225,7 +363,7 @@ void StateEstimator::thruster_callback(const piml_msgs::msg::ThrusterRPMStamped:
           last_vbs_,
           last_thr1_rpm_,
           last_thr2_rpm_;
-  RCLCPP_INFO(this->get_logger(), "Thruster callback: %f %f %f %f", last_lcg_, last_vbs_, last_thr1_rpm_, last_thr2_rpm_);
+  // RCLCPP_INFO(this->get_logger(), "Thruster callback: %f %f %f %f", last_lcg_, last_vbs_, last_thr1_rpm_, last_thr2_rpm_);
    double timestamp = rclcpp::Time(t1->header.stamp).seconds();
    pmm->controlToList(u_fb, timestamp, false);
   }
@@ -243,7 +381,7 @@ void StateEstimator::lcg_vbs_callback(
 
   Eigen::Vector4d u_fb;
   u_fb << last_lcg_,last_vbs_, last_thr1_rpm_, last_thr2_rpm_;
-  RCLCPP_INFO(this->get_logger(), "LCG/VBS callback: %f %f %f %f", last_lcg_, last_vbs_, last_thr1_rpm_, last_thr2_rpm_);
+  // RCLCPP_INFO(this->get_logger(), "LCG/VBS callback: %f %f %f %f", last_lcg_, last_vbs_, last_thr1_rpm_, last_thr2_rpm_);
    double timestamp = rclcpp::Time(lcg->header.stamp).seconds();
    pmm->controlToList(u_fb, timestamp, false);
   } 
@@ -260,8 +398,8 @@ void StateEstimator::imu_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
   Vector3 gyro_raw(msg->angular_velocity.x,
                    msg->angular_velocity.y,
                    msg->angular_velocity.z);
-  acc = Vector3(-acc.x(), acc.y(), acc.z());
-  gyro = Vector3(-gyro_raw.x(), -gyro_raw.y(), gyro_raw.z()); // Adjusted gyro measurements to right-hand rule.
+  acc = Vector3(acc.x(), acc.y(), acc.z());
+  gyro = Vector3(-gyro_raw.x(), -gyro_raw.y(), -gyro_raw.z()); // Adjusted gyro measurements to right-hand rule.
   //   if(number_of_imu_measurements< 6)
   // {
   //   Rot3 current_rotation = Rot3::Quaternion(msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
@@ -286,7 +424,7 @@ void StateEstimator::sbg_callback(const sensor_msgs::msg::Imu::SharedPtr msg)
 
   Vector3 sbg_gyro = Vector3(gyro_raw.x(), gyro_raw.y(), gyro_raw.z());
   gyro = sbg_gyro;
-  acc = Vector3(-acc.x(), acc.y(), acc.z());
+  acc = Vector3(acc.x(), acc.y(), acc.z());
     if(number_of_imu_measurements< 6)
   {
     Rot3 current_rotation = Rot3::Quaternion(msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
@@ -310,15 +448,18 @@ void StateEstimator::dvl_callback(const smarc_msgs::msg::DVL::SharedPtr msg)
 
 void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::SharedPtr msg) {
   double measured_pressure = msg->fluid_pressure;
-  double depth = -(measured_pressure - atmospheric_pressure_) / 9806.65; //Down negative 
+  double water_density  = gtsam_graph_->getWaterDensity();
+  double depth = -(measured_pressure - atmospheric_pressure_) / (water_density * 9.818); //Down negative 
   // RCLCPP_INFO(this->get_logger(), "Barometer  depth: %f", depth);
   if(map_initialized_ && is_graph_initialized_){
     if (!baro_calibrated) {
+      auto ext = gtsam_graph_->getExtrinsics();
+      gtsam::Vector3 base_to_pressure_offset = ext.baro_sensor_offset;
+      gtsam::Vector3 sensor_offset = previous_state_.rotation().rotate(base_to_pressure_offset);
       static_offset_ =  depth; // this is the offset to the static frame
       baro_calibrated = true;
     }
   latest_depth_measurement_ =  depth - static_offset_; // depth in the odom frame
-  RCLCPP_INFO(this->get_logger(), "Depth: %f", latest_depth_measurement_);
   new_barometer_measurement_received_ = true;
   }
   }
@@ -411,10 +552,6 @@ void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr m
     bool northp;
     GeographicLib::UTMUPS::Forward(avg_lat, avg_lon, utm_zone, northp, utm_x, utm_y);
     utm_z = avg_alt;
-
-
-
-
 
     // Create a static transform from "utm" to "map" using the UTM coordinates.
     geometry_msgs::msg::TransformStamped map_transform;
@@ -569,7 +706,7 @@ void StateEstimator::KeyframeTimerCallback()
       Vector3 initial_velocity = Vector3(init_vel_odom_.velocity.linear.x,
                                          init_vel_odom_.velocity.linear.y,
                                          init_vel_odom_.velocity.linear.z);
-      // Initialize the GTSAM graph and state.
+      // Initialize the GTSAM graph and state.static_offset_
       gtsam_graph_->initGraphAndState(initial_quat, initial_position,initial_velocity);
       RCLCPP_INFO(this->get_logger(),"initial velocity: [%f, %f, %f]",
                   initial_velocity.x(), initial_velocity.y(), initial_velocity.z());
@@ -583,7 +720,7 @@ void StateEstimator::KeyframeTimerCallback()
     }
   
   auto [imu_dt, sbg_dt] = gtsam_graph_->getTij();
-  if (imu_dt <= 0.0 /*|| sbg_dt <= 0.0*/)
+  if (imu_dt <= 0.0 || sbg_dt <= 0.0)
   {
     RCLCPP_DEBUG(get_logger(),"No new IMU/SBG data this cycle (imu_dt=%.6f, sbg_dt=%.6f), skipping factors + optimize",
       imu_dt, sbg_dt);
@@ -619,20 +756,31 @@ void StateEstimator::KeyframeTimerCallback()
   
   // Predict the next state using the preintegrated measurements AND add the imu factor to the graph.
   NavState predictes_imu_state = gtsam_graph_->addImuFactor();
-  // RCLCPP_INFO(this->get_logger(), "IMU prediction state: [%f, %f, %f]",
-              // predictes_imu_state.pose().translation().x(),
-              // predictes_imu_state.pose().translation().y(),
-              // predictes_imu_state.pose().translation().z());
-  // NavState predicted_sbg_state = gtsam_graph_->addSbgFactor();
-  // RCLCPP_INFO(this->get_logger(), "SBG prediction state: [%f, %f, %f]",
-  //             predicted_sbg_state.pose().translation().x(),
-  //             predicted_sbg_state.pose().translation().y(),
-  //             predicted_sbg_state.pose().translation().z());
 
-  
+  NavState predicted_sbg_state = gtsam_graph_->addSbgFactor();
+  // RCLCPP_INFO(this->get_logger(), "SBG prediction state: [%f, %f, %f]",
+
+
+  if(init_from_ground_truth_ && gtsam_graph_->getCurrentIndex() %2 == 0) // bad way to make it sample at half the keyframe rate
+  {
+    gtsam_graph_->addGtVelocityFactor(gt_velocity_);
+  //   if( gt_counter_<30)
+  //  {
+  //   gtsam_graph_->addGtPoseFactor(gt_pose_);
+  //   RCLCPP_INFO(this->get_logger(), "Ground truth pose: [%f, %f, %f]",
+  //             gt_pose_.translation().x(),
+  //             gt_pose_.translation().y(),
+  //             gt_pose_.translation().z());
+  //   gt_counter_++;
+  //   }
+}
   // Add the DVL, GPS and Barometer factors to the graph.
   if (new_dvl_measurement_) {  
     gtsam_graph_->addDvlFactor(latest_dvl_measurement_, dvl_gyro );
+    RCLCPP_INFO(this->get_logger(), "DVL measurement: [%f, %f, %f]",
+              latest_dvl_measurement_.x(),
+              latest_dvl_measurement_.y(),
+              latest_dvl_measurement_.z());
     new_dvl_measurement_ = false;
   }
 
@@ -645,6 +793,7 @@ void StateEstimator::KeyframeTimerCallback()
     gtsam_graph_->addBarometerFactor(latest_depth_measurement_);
     new_barometer_measurement_received_ = false;
   }
+
 
   // Optimize the factor graph.
   gtsam_graph_->optimize();
@@ -672,9 +821,20 @@ void StateEstimator::KeyframeTimerCallback()
   estimated_pose.pose.pose.orientation.y = quat.y();
   estimated_pose.pose.pose.orientation.z = quat.z();
   estimated_pose.pose.pose.orientation.w = quat.w();
-  estimated_pose.twist.twist.linear.x = previous_state_.velocity().x();
-  estimated_pose.twist.twist.linear.y = previous_state_.velocity().y();
-  estimated_pose.twist.twist.linear.z = previous_state_.velocity().z();
+  Eigen::Vector3d v_body(
+    previous_state_.velocity().x(),
+    previous_state_.velocity().y(),
+    previous_state_.velocity().z()
+  );
+
+  // 2) rotate it into the odom frame
+  Eigen::Matrix3d R = previous_state_.pose().rotation().transpose().matrix();
+  Eigen::Vector3d v_odom = R * v_body;
+
+  // 3) assign each component to your ROS message
+  estimated_pose.twist.twist.linear.x = v_odom.x();
+  estimated_pose.twist.twist.linear.y = v_odom.y();
+  estimated_pose.twist.twist.linear.z = v_odom.z();
   pose_pub_->publish(estimated_pose);
   // Broadcast estimated pose.
   geometry_msgs::msg::TransformStamped out_transform;

@@ -18,6 +18,7 @@
 #include <hydrobatic_localization/BarometerFactor.h>
 #include <hydrobatic_localization/DvlFactor.h>
 #include <hydrobatic_localization/SamMotionModelFactor.h>
+#include <hydrobatic_localization/BodyVelocityFactor.h>
 #include <vector>
 #include <gtsam/nonlinear/ISAM2.h>
 #include <gtsam/nonlinear/BatchFixedLagSmoother.h>
@@ -102,7 +103,14 @@ public:
   /**
    * @brief Optimize the factor graph, increments the index and updates the state and bias of both the IMU and SBG.
    */
+
+  void addGtPriorFactor(const Pose3& pose, const Vector3& velocity);
+  void addGtVelocityFactor(const Vector3& velocity);
+  void addGtPoseFactor(const Pose3& pose);
+  
   void optimize();
+
+  void addInitialEstimate();
 
   /**
   * @brief Get the exrtrinsics of the vehicle
@@ -142,6 +150,10 @@ public:
 
   double getSbgRate() const {
     return config_.sbg.sample_rate;
+  }
+
+  double getWaterDensity() const {
+    return config_.water_density;
   }
   /**
    * @brief Get the current index of the factor graph
@@ -188,6 +200,10 @@ private:
   bool full_smoothing_;
   imuBias::ConstantBias current_imu_bias_;
   imuBias::ConstantBias current_sbg_bias_;
+  NavState imu_prediction_state_;
+  NavState sbg_prediction_state_;
+  NavState motion_model_prediction_state_;
+  Values results_;
   //ISAM2
   std::shared_ptr<gtsam::ISAM2> isam_;
   InferenceStrategy inference_strategy_;

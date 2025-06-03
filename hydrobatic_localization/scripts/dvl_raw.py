@@ -24,7 +24,7 @@ class DVLConverterNode(Node):
         self.phi = np.deg2rad(np.array([225., 135., 45., 315.]))
         self.Imu_Base = np.array([0.573, 0.0, -0.063])
 
-        self.window_size = 4
+        self.window_size = 2
         self.vel_buffer = deque(maxlen=self.window_size)
         
 
@@ -51,18 +51,19 @@ class DVLConverterNode(Node):
             return
 
         if data.get('velocity_valid', False):
-            self.get_logger().info(f' fom for velocity valid {data.get("fom")}')
+            # self.get_logger().info(f' fom for velocity valid {data.get("fom")}')
             vx, vy, vz = data['vx'], data['vy'], data['vz']
         else:
-            
-            beams = [b for b in data.get('transducers', []) if b.get('beam_valid')]
+            beams = [b for b in data.get('transducers', [])
+                      if b.get('beam_valid')
+                      and b.get('rssi')<-73
+                      and b.get('nsd')<-84]
             if len(beams) < 3:
-                self.get_logger().info(f' fom for < 3 beams {data.get("fom")}')
-                self.get_logger().warn(f'{len(beams)} valid beams (<3); skipping')
+                # self.get_logger().info(f' fom for < 3 beams {data.get("fom")}')
+                # self.get_logger().warn(f'{len(beams)} valid beams (<3); skipping')
                 return
-
-            self.get_logger().info(f' fom for 3 beams {data.get("fom")}')
-            # if data.get("fom")>1: return
+            # for b in beams:
+                # self.get_logger().info(f"nsd, rssi and fom: {b.get('nsd')} ,  {b.get('rssi')}, ,  {data.get('fom')}")            # if data.get("fom")>1: return
             ids    = [b['id'] for b in beams]
             b_vels = np.array([b['velocity'] for b in beams])
             sa, ca = np.sin(self.beam_angle), np.cos(self.beam_angle)
@@ -92,9 +93,9 @@ class DVLConverterNode(Node):
             beam.pose.header.frame_id = self.frame_id
             out.beams.append(beam)
 
-        vel_body = np.array([vx, vy, vz])
+        vel_dvl = np.array([vx, vy, vz])
         cross_prod = np.cross(self.angulat_vel, self.Imu_Base)
-        baselink_vel = vel_body - cross_prod
+        baselink_vel = vel_dvl - cross_prod
 
         raw_msg = Vector3(
             x=baselink_vel[0],
@@ -103,11 +104,11 @@ class DVLConverterNode(Node):
         )
         self.raw_pub.publish(raw_msg)
 
-        self.vel_buffer.append(baselink_vel)
+        self.vel_buffer.append(vel_dvl)
         if len(self.vel_buffer) == self.window_size:
             med = np.median(np.stack(self.vel_buffer), axis=0)
         else:
-            med = baselink_vel
+            med = vel_dvl
 
         out.velocity = Vector3(x=med[0], y=med[1], z=med[2])
         self.pub.publish(out)

@@ -1,23 +1,23 @@
 # sam.yaml
 imu:
-  gravity:               9.80665
-  accel_noise_sigma:     0.00185    # m/s^2/√Hz
+  gravity:               9.818
+  accel_noise_sigma:     0.185    # m/s^2/√Hz
   gyro_noise_sigma:      0.000120835   # rad/s/√Hz
-  accel_bias_rw_sigma:   0.000137  # m/s^2
-  gyro_bias_rw_sigma:    0.000005585 
-  integration_error_cov: 1e-4
-  bias_acc_omega_init:   1e-5
+  accel_bias_rw_sigma:   0.0137  # m/s^2
+  gyro_bias_rw_sigma:    0.0005585 
+  integration_error_cov: 1e-3
+  bias_acc_omega_init:   1e-3
   sample_rate:        0.008       # dt between imu readings
 
 sbg:
-  gravity:               9.80665
-  accel_noise_sigma:     0.000516667
+  gravity:               9.818
+  accel_noise_sigma:     0.516667
   gyro_noise_sigma:      0.000067079
-  accel_bias_rw_sigma:   0.00004
-  gyro_bias_rw_sigma:    0.000008901
-  integration_error_cov: 1e-4
-  bias_acc_omega_init:   1e-5
-  sample_rate:        0.02
+  accel_bias_rw_sigma:   0.014
+  gyro_bias_rw_sigma:    0.00008901
+  integration_error_cov: 1e-3
+  bias_acc_omega_init:   1e-3
+  sample_rate:        0.04
 
 extrinsics:
   imu_sensor_pose:  [0.24,  0.0,   -0.036]
@@ -29,10 +29,12 @@ extrinsics:
 noise_models:
   prior:
     pose_sigma:     [1e-6, 1e-6, 1e-6, 1e-6, 1e-6, 1e-6]
-    velocity_sigma: [1e-6, 1e-6, 1e-6]
+    velocity_sigma: [1e-3, 1e-3, 1e-3]
     bias_sigma:     [1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3]
 
-  motion_model_sigma: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
-  dvl_sigma:           [0.01,  0.01,  1.0]
+  motion_model_sigma: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+  dvl_sigma:           [0.05,  0.05,  10.0]
   gps_sigma:           [0.5,   0.5,   0.5]
   barometer_sigma:     [0.001]
+
+water_density: 998.29

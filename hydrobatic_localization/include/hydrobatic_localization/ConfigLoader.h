@@ -34,6 +34,7 @@ struct ExtrinsicsConfig {
   gtsam::Vector3 baro_sensor_offset;
 };
 
+//Helpers for converting to GTSAM vectors
 inline gtsam::Vector3 readVector3(const YAML::Node& node) {
   auto d = node.as<std::vector<double>>();
   gtsam::Vector3 v;
@@ -56,10 +57,11 @@ inline gtsam::Vector6 readVector6(const YAML::Node& node) {
 }
 
 struct Config {
-  NoiseConfig     imu;
-  NoiseConfig     sbg;
+  NoiseConfig      imu;
+  NoiseConfig      sbg;
   ExtrinsicsConfig extrinsics;
-  NoiseModels     noise_models;
+  NoiseModels      noise_models;
+  double           water_density;
 
   static Config load(const std::string& filename) {
     YAML::Node root = YAML::LoadFile(filename);
@@ -106,6 +108,9 @@ struct Config {
     c.noise_models.dvl_sigma          = readVector3(nm["dvl_sigma"]);
     c.noise_models.gps_sigma          = readVector3(nm["gps_sigma"]);
     c.noise_models.barometer_sigma    = nm["barometer_sigma"][0].as<double>();
+
+    // water density
+    c.water_density = root["water_density"].as<double>();
 
     return c;
   }

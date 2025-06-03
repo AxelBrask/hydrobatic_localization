@@ -45,7 +45,7 @@ include_directories(${Python3_INCLUDE_DIRS})
 # set python interpreter path 
 list(APPEND PYTHONPATH "${CMAKE_INSTALL_PREFIX}/lib/hydrobatic_localization/SAM_casadi.py")
 
-add_executable(state_estimator src/state_estimator.cpp src/gtsam_graph.cpp src/BarometerFactor.cpp src/DvlFactor.cpp src/SamMotionModel src/SamMotionModelFactor.cpp)
+add_executable(state_estimator src/state_estimator.cpp src/gtsam_graph.cpp src/BodyVelocityFactor src/BarometerFactor.cpp src/DvlFactor.cpp src/SamMotionModel src/SamMotionModelFactor.cpp)
 ament_target_dependencies(state_estimator
   rclcpp
   sensor_msgs
@@ -65,7 +65,25 @@ target_link_libraries(state_estimator
   Eigen3::Eigen
   GeographicLib::GeographicLib
   yaml-cpp   
+  tf2_geometry_msgs::tf2_geometry_msgs
   )
+add_executable(motion_model  src/motion_model.cpp src/SamMotionModel.cpp 
+ )
+ament_target_dependencies(motion_model
+  rclcpp
+  sensor_msgs
+  piml_msgs
+  dead_reckoning_msgs
+  std_msgs
+  nav_msgs
+  sam_msgs
+  smarc_msgs
+  tf2 
+  tf2_ros
+  tf2_geometry_msgs
+  geometry_msgs
+  piml_msgs
+)
 
 # add logger node executable
 add_executable(logger src/loggerNode.cpp)
@@ -91,6 +109,7 @@ install(TARGETS
   # hydrobatic_localization
   state_estimator
   logger
+  motion_model
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY include/
@@ -125,6 +144,10 @@ if(BUILD_TESTING)
     test/DvlFactorTest.cpp
     src/DvlFactor.cpp
   )
+  add_executable(test_bodyvelocity_factor
+    test/BodyVelocityFactorTest.cpp
+    src/BodyVelocityFactor.cpp
+  )
   # TODO inlcude CppUnitLite headers in a better way
   target_include_directories(test_barometer_factor PUBLIC /usr/local/include)
   find_library(CPPUNITLITE_LIBRARY NAMES cppunitlite PATHS /usr/local/lib)
@@ -143,12 +166,17 @@ if(BUILD_TESTING)
     gtsam
     ${CPPUNITLITE_LIBRARY}
   )
+  target_link_libraries(test_bodyvelocity_factor
+    gtsam
+    ${CPPUNITLITE_LIBRARY}
+  )
   ament_target_dependencies(test_motion_model_factor
     rclcpp
   )
   ament_add_test(test_dvl_factor COMMAND test_dvl_factor)
   ament_add_test(test_barometer_factor COMMAND test_barometer_factor)
   ament_add_test(test_motion_model_factor COMMAND test_motion_model_factor)
+  ament_add_test(test_bodyvelocity_factor COMMAND test_bodyvelocity_factor)
   ament_lint_auto_find_test_dependencies()
 endif()
 

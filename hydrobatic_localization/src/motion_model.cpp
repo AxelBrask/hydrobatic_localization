@@ -87,21 +87,23 @@ public:
               last_vector_horizontal_radians_,
               last_thr1_rpm_, last_thr2_rpm_;
 
-    
-
-    double t_curr = msg->header.stamp.sec
-                    + msg->header.stamp.nanosec*1e-9;
-      if(!has_prev_) {
-        x_.tail<6>() = u_curr; 
-        t_prev_ = t_curr; 
-        u_prev_ = u_curr;
-        has_prev_ = true;
-        RCLCPP_INFO(this->get_logger(), "Initial pose set from thruster vector callback.");
-
-        return;
-
+              
+              
+              double t_curr = msg->header.stamp.sec
+    + msg->header.stamp.nanosec*1e-9;
+    if(!has_prev_) {
+      x_.tail<6>() = u_curr; 
+      t_prev_ = t_curr; 
+      u_prev_ = u_curr;
+      has_prev_ = true;
+      RCLCPP_INFO(this->get_logger(), "Initial pose set from thruster vector callback.");
+      
+      return;
+      
     }
-    if (has_prev_) {
+    
+    // RCLCPP_INFO(this->get_logger(), "Thrust vector cb.");
+    if (has_prev_ && has_initial_pose_) {
       double dt = t_curr - t_prev_;
       if (dt > 0.0) {
         x_ = pmm->integrateState(x_, u_prev_, dt);
@@ -135,7 +137,9 @@ public:
 
     }
 
-    if (has_prev_) {
+    // RCLCPP_INFO(this->get_logger(), "Thruster cb.");
+    
+    if (has_prev_ && has_initial_pose_) {
       double dt = t_curr - t_prev_;
       if (dt > 0.0) {
         x_ = pmm->integrateState(x_, u_prev_, dt);
@@ -174,6 +178,9 @@ public:
 
     }
 
+    if (has_prev_ && has_initial_pose_) {
+
+    // RCLCPP_INFO(this->get_logger(), "LCG cb.");
 
     double dt = t_curr - t_prev_;
     if (dt > 0) {
@@ -186,6 +193,7 @@ public:
     u_prev_ = u_curr;
     t_prev_ = t_curr;
   }
+}
   void publishOdom(const Eigen::VectorXd& x, double t)
   {
     nav_msgs::msg::Odometry odom;

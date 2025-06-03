@@ -2,6 +2,7 @@
 #define STATEESTIMATOR_H
 // ROS includes
 #include <rclcpp/rclcpp.hpp>
+#include <random>
 #include <sensor_msgs/msg/imu.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/fluid_pressure.hpp>
@@ -15,7 +16,9 @@
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
+
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/msg/velocity_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -30,6 +33,7 @@
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
+#include <message_filters/time_sequencer.h>
 // ROS Multithreading
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -112,7 +116,7 @@ private:
   void gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
   
   void pose_callback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
-
+  void gt_velocity_callback(const geometry_msgs::msg::TwistStamped::SharedPtr msg);
   // ROS publishers and subscribers
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr stim_imu_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sbg_imu_sub_;
@@ -124,7 +128,12 @@ private:
   rclcpp::Subscription<sam_msgs::msg::ThrusterRPMs>::SharedPtr thruster_sub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pose_pub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr motion_model_odom_;
+
+  rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_sub_;
+
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr gt_pose_sub_;  
+  rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub_;
+  
 
   // ROS Control subscribers with message filters
   // Thruster-only sync
@@ -144,7 +153,8 @@ private:
   message_filters::Subscriber<piml_msgs::msg::ThrusterRPMStamped> thruster2_sub_;
   message_filters::Subscriber<smarc_msgs::msg::PercentStamped>     lcg_sub_;
   message_filters::Subscriber<smarc_msgs::msg::PercentStamped>     vbs_sub_;
-
+  std::shared_ptr<message_filters::Subscriber<geometry_msgs::msg::TwistStamped>> mf_sub_;
+  std::shared_ptr<message_filters::TimeSequencer<geometry_msgs::msg::TwistStamped>> sequencer_;
   std::string config_file_;
 
   // TF components
@@ -158,7 +168,9 @@ private:
   gtsam::Quaternion gt_init_quat_;
   rclcpp::TimerBase::SharedPtr KeyframeTimer;
   geometry_msgs::msg::VelocityStamped init_vel_odom_;
-
+  gtsam::Pose3 gt_pose_;
+  gtsam::Velocity3 gt_velocity_;
+  int gt_counter_ = 0;
   // IMU and SBG callback groups
   rclcpp::CallbackGroup::SharedPtr imu_callback_group_;
   rclcpp::CallbackGroup::SharedPtr sbg_callback_group_;
@@ -223,7 +235,10 @@ private:
   double last_thr1_rpm_{0.0};
   double last_thr2_rpm_{0.0};
 
-
+  std::default_random_engine        noise_generator_;
+  std::normal_distribution<double>  noise_lin_x_;
+  std::normal_distribution<double>  noise_lin_y_;
+  std::normal_distribution<double>  noise_lin_z_;
 
 
   // Helper functions
