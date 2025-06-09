@@ -7,6 +7,9 @@
     <arg name = "kf_interval_hz" default = "10"/>
     <arg name = "init_from_ground_truth" default = "false"/>    
     <arg name = "bag_file" default = "/home/axel/colcon_ws/may_22/rosbag2_2025_05_22-15_22_01"/>
+    <arg name="robot_urdf" default="sam_auv.urdf"/>
+
+
     <executable cmd="ros2 bag play $(var bag_file) --clock" output="screen" />
     <node pkg="hydrobatic_localization" exec="state_estimator" output="screen" namespace = "$(var robot_name)">
         <param name = "config_file" value = "$(var config_file)"/>
@@ -26,4 +29,8 @@
         <param name = "robot_name" value = "$(var robot_name)"/>
     </node>
     
+    <!-- <node name="robot_state_publisher" pkg="robot_state_publisher" exec="robot_state_publisher" respawn="true" output="screen" namespace="sam_mocap2" >
+        <param name="robot_description" value="$(command 'xacro $(find-pkg-share sam_description)/urdf/$(var robot_urdf).xacro ns:=sam_mocap2 ')"/>
+    </node> -->
+
 </launch>

@@ -115,7 +115,6 @@ private:
 
   void gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
   
-  void pose_callback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
   void gt_velocity_callback(const geometry_msgs::msg::TwistStamped::SharedPtr msg);
   // ROS publishers and subscribers
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr stim_imu_sub_;
@@ -128,10 +127,10 @@ private:
   rclcpp::Subscription<sam_msgs::msg::ThrusterRPMs>::SharedPtr thruster_sub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pose_pub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr motion_model_odom_;
-
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr depth_pub_;
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_sub_;
-
-  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr gt_pose_sub_;  
+  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr gt_pressure_pub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr gt_pose_sub_;
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub_;
   
 

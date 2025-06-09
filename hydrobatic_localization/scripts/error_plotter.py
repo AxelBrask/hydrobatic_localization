@@ -47,7 +47,7 @@ def quat_error_deg(q_est, q_gt):
     R_err = R.from_quat(q_est)*R.from_quat(q_gt).inv()
     return np.degrees(R_err.magnitude())          
 
-log_dir   = pathlib.Path("turbo_turn") 
+log_dir   = pathlib.Path("depth_yaw") 
 log_paths = sorted(log_dir.glob("*.csv")) 
 
 
@@ -171,3 +171,46 @@ sc = plt.scatter(df["est_al_x"], df["est_al_y"], c=df["trans_err"],
 plt.colorbar(sc, label="ATE [m]")
 plt.axis("equal"); plt.legend(); plt.title("Error-coloured trajectory")
 plt.tight_layout(); plt.show()
+
+
+quat_est = big[["est_quat_x","est_quat_y","est_quat_z","est_quat_w"]].values
+quat_gt  = big[["gt_quat_x","gt_quat_y","gt_quat_z","gt_quat_w"]].values
+
+rots_est = R.from_quat(quat_est)  # scipy expects (x,y,z,w)
+euler_est = rots_est.as_euler('xyz', degrees=True)
+
+rots_gt = R.from_quat(quat_gt)
+euler_gt = rots_gt.as_euler('xyz', degrees=True)
+
+# Compute the difference in roll, pitch, yaw, wrapped to [-180, 180]
+diff = euler_est - euler_gt
+diff = (diff + 180) % 360 - 180
+
+# Add to DataFrame
+big["roll_err"]  = diff[:, 0]
+big["pitch_err"] = diff[:, 1]
+big["yaw_err"]   = diff[:, 2]
+
+# Plot roll, pitch, yaw errors over time
+for axis, label in [("roll_err",  "Roll Error [°]"),
+                    ("pitch_err", "Pitch Error [°]"),
+                    ("yaw_err",   "Yaw Error [°]")]:
+    plt.figure(figsize=(12, 4))
+    run_styles = itertools.cycle(style_list)
+    for run in runs_new:
+        g = big[big["run"] == run]
+        style = next(run_styles)
+        plt.plot(
+            g["time"],
+            g[axis],
+            label=f"{run}",
+            color=run_colours[run],
+            **style,
+            alpha=0.9,
+        )
+    plt.xlabel("Time [s]")
+    plt.ylabel(label)
+    plt.title(f"{label} Over Time")
+    plt.legend(fontsize=8, ncol=len(runs_new))
+    plt.tight_layout()
+    plt.show()

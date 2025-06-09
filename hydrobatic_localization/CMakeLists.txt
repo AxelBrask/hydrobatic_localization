@@ -43,7 +43,6 @@ include_directories(${PROJECT_SOURCE_DIR}/launch/)
 include_directories(${GeographicLib_INCLUDE_DIRS})
 include_directories(${Python3_INCLUDE_DIRS})
 # set python interpreter path 
-list(APPEND PYTHONPATH "${CMAKE_INSTALL_PREFIX}/lib/hydrobatic_localization/SAM_casadi.py")
 
 add_executable(state_estimator src/state_estimator.cpp src/gtsam_graph.cpp src/BodyVelocityFactor src/BarometerFactor.cpp src/DvlFactor.cpp src/SamMotionModel src/SamMotionModelFactor.cpp)
 ament_target_dependencies(state_estimator
@@ -99,7 +98,7 @@ ament_target_dependencies(logger
 # Insatll the executablese, headers and launch files
 
 install(PROGRAMS
-/home/axel/colcon_ws/src/smarc2/external_packages/smarc_modelling/src/smarc_modelling/piml/utils/topic_collector.py
+  ../../../../external_packages/smarc_modelling/src/smarc_modelling/piml/utils/topic_collector.py
 ${PROJECT_SOURCE_DIR}/scripts/dvl_raw.py
 ${PROJECT_SOURCE_DIR}/scripts/sinus_pub.py
 DESTINATION lib/${PROJECT_NAME}
@@ -125,8 +124,7 @@ install(DIRECTORY launch
    DESTINATION share/${PROJECT_NAME}/config
  )
 
-install(FILES ${PROJECT_SOURCE_DIR}/smarc_modelling/src/smarc_modelling/vehicles/SAM_casadi.py
-DESTINATION lib/${PROJECT_NAME})
+
 
 
 if(BUILD_TESTING)

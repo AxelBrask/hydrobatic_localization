@@ -81,13 +81,13 @@ void GtsamGraph::initGraphAndState(const Rot3& initial_rot, const Point3& initia
   graph_.addPrior<Pose3>(X(0), prior_pose, pose_noise);
   graph_.addPrior<Vector3>(V(0), prior_velocity, velocity_noise);
   graph_.addPrior<imuBias::ConstantBias>(B(0), prior_imu_bias, bias_noise);
-  graph_.addPrior<imuBias::ConstantBias>(B2(0), prior_sbg_bias, bias_noise); 
+  // graph_.addPrior<imuBias::ConstantBias>(B2(0), prior_sbg_bias, bias_noise); 
 
   // Insert initial estimates
   initial_estimate_.insert(X(0), prior_pose);
   initial_estimate_.insert(V(0), prior_velocity);
   initial_estimate_.insert(B(0), prior_imu_bias);
-  initial_estimate_.insert(B2(0), prior_sbg_bias);
+  // initial_estimate_.insert(B2(0), prior_sbg_bias);
 
   // Save the initial state.
   previous_state_ = NavState(prior_pose, prior_velocity);
@@ -105,18 +105,25 @@ void GtsamGraph::integrateSbgMeasurement(const Vector3& acc, const Vector3& gyro
 {
   sbg_preintegrated_->integrateMeasurement(acc, gyro, dt);
 }
+
+// Used for adding ground truth velocity factors to the graph, e.g. for simulation or testing purposes or when DVL is bad.
 void GtsamGraph::addGtVelocityFactor(const Vector3& velocity) {
   auto velocity_noise = noiseModel::Diagonal::Sigmas(config_.noise_models.dvl_sigma);
   graph_.add(BodyVelocityFactor(X(current_index_+1), V(current_index_+1), velocity, velocity_noise));
 }
 
+// Used for adding ground truth pose factors to the graph, e.g. for simulation or testing purposes.
 void GtsamGraph::addGtPoseFactor(const Pose3& pose) {
-  auto pose_noise = noiseModel::Isotropic::Sigma(6, 0.01);
+  
+  gtsam::Vector6 sigmas;
+  sigmas << 1e6, 1e6, 1e6,    
+            0.01, 0.01, 0.01; 
+  auto pose_noise = noiseModel::Diagonal::Sigmas(sigmas);
   graph_.addPrior<Pose3>(X(current_index_+1), pose, pose_noise);
 }
 
+// Used for adding ground truth prior factors to the graph, e.g. for simulation or testing purposes.
 void GtsamGraph::addGtPriorFactor(const Pose3& pose, const Vector3& velocity){
-  // Add ground truth prior factor
   auto pose_noise = noiseModel::Diagonal::Sigmas(config_.noise_models.prior.pose_sigma);
   auto velocity_noise = noiseModel::Diagonal::Sigmas(config_.noise_models.dvl_sigma);
   auto bias_noise = noiseModel::Diagonal::Sigmas(config_.noise_models.prior.bias_sigma);
@@ -135,10 +142,7 @@ NavState GtsamGraph::addImuFactor()
   );
   graph_.add(imu_factor);
 
-  // Predict state using the preintegrated measurements.
- imu_prediction_state_ = imu_preintegrated_->predict(previous_state_, current_imu_bias_);
-
-  // Insert the predicted state into the initial estimate.
+  imu_prediction_state_ = imu_preintegrated_->predict(previous_state_, current_imu_bias_);
 
   return imu_prediction_state_;
 }
@@ -167,14 +171,10 @@ void GtsamGraph::addMotionModelFactor(const double start_time, const double end_
 {
 
   auto motionModelNoise = noiseModel::Diagonal::Sigmas(config_.noise_models.motion_model_sigma);
-  std::cout << "Adding motion model factor with noise: " << config_.noise_models.motion_model_sigma.transpose() << std::endl;
   graph_.add(SamMotionModelFactor(X(current_index_), X(current_index_+1), V(current_index_), V(current_index_+1),
                                   motionModelNoise, start_time, end_time, *pmm, gyro));
   motion_model_prediction_state_ =pmm->getMotionModelPredictionState();
-  // Insert the predicted state into the initial estimate. Only use this when not running the IMUs
-  // initial_estimate_.insert(X(current_index_+1), new_state.pose());
-  // initial_estimate_.insert(V(current_index_+1), new_state.v());
-  // 
+
 }
 
 void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro)
@@ -227,10 +227,10 @@ void GtsamGraph::addInitialEstimate()
   if(current_index_ == 0)
   {
     // If this is the first iteration, we need to insert the initial estimate
-    initial_estimate_.insert(X(current_index_+1), predicted_state.pose());
-    initial_estimate_.insert(V(current_index_+1), predicted_state.v());
+    initial_estimate_.insert(X(current_index_+1), initial_estimate_.at<Pose3>(X(current_index_)));
+    initial_estimate_.insert(V(current_index_+1), initial_estimate_.at<Vector3>(V(current_index_)));
     initial_estimate_.insert(B(current_index_+1), current_imu_bias_);
-    initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
+    // initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
   }
   else
   {
@@ -238,7 +238,7 @@ void GtsamGraph::addInitialEstimate()
   initial_estimate_.insert( X(current_index_+1),results_.at<Pose3>(X(current_index_)) );
   initial_estimate_.insert( V(current_index_+1), results_.at<Vector3>(V(current_index_)) );
   initial_estimate_.insert( B(current_index_+1), current_imu_bias_ );
-  initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
+  // initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
   }
 }
 
@@ -278,12 +278,13 @@ void GtsamGraph::optimize() {
     }
        results_ = fixed_lag_smoother_->calculateEstimate();
       current_imu_bias_ = results_.at<imuBias::ConstantBias>(B(current_index_));
-      current_sbg_bias_ = results_.at<imuBias::ConstantBias>(B2(current_index_));
+        //  std::cout << "Current IMU Bias: " << current_imu_bias_.vector().transpose() << std::endl;
+      // current_sbg_bias_ = results_.at<imuBias::ConstantBias>(B2(current_index_));
       previous_state_ = NavState(results_.at<Pose3>(X(current_index_)), results_.at<Vector3>(V(current_index_)));
       graph_.resize(0);
       initial_estimate_.clear();
       imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
-      sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
+      // sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
   } 
 
 
@@ -294,7 +295,7 @@ void GtsamGraph::optimize() {
 
     results_ = isam_->calculateEstimate();
     current_imu_bias_ = results_.at<imuBias::ConstantBias>(B(current_index_));
-    std::cout << "Current IMU Bias: " << current_imu_bias_.vector().transpose() << std::endl;
+    // std::cout << "Current IMU Bias: " << current_imu_bias_.vector().transpose() << std::endl;
     // current_sbg_bias_ = results_.at<imuBias::ConstantBias>(B2(current_index_));
     previous_state_ = NavState(results_.at<Pose3>(X(current_index_)), results_.at<Vector3>(V(current_index_)));
     graph_.resize(0);

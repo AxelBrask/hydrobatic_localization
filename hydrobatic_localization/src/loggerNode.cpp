@@ -1,5 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <iomanip>
 // #include <message_filters/subscriber.h>
 // #include <message_filters/synchronizer.h>
 // #include <message_filters/sync_policies/approximate_time.h>
@@ -16,12 +17,11 @@ class loggerNode : public rclcpp::Node {
 public:
     loggerNode() : Node("logger_node"), tf_buffer_(this->get_clock()),
     tf_listener_(tf_buffer_) {
-        this->set_parameter(rclcpp::Parameter("use_sim_time", true));
             geometry_msgs::msg::TransformStamped odom_to_odom_gt;
         this->declare_parameter<std::string>("folder", "logs");
         this->get_parameter("folder", folder_);
         std::filesystem::create_directories(folder_);
-        get_static_utm_map_gt();
+        // get_static_utm_map_gt();
         log_file_.open(folder_ + "/state_estimator_log.csv");
         log_file_ << "time, est_pos_x, est_pos_y, est_pos_z, est_quat_w, est_quat_x, est_quat_y, est_quat_z, "
                   << "gt_pos_x, gt_pos_y, gt_pos_z, gt_quat_w, gt_quat_x, gt_quat_y, gt_quat_z\n";
@@ -90,16 +90,16 @@ public:
     try {
 
       tf_est = tf_buffer_.lookupTransform(
-        "map",           
+        "odom",           
         "estimated_pose",
-        stamp,   
+        rclcpp::Time(0),   
         tf2::durationFromSec(0.05));
     tf_gt = tf_buffer_.lookupTransform(
-        "sam_auv_v1/odom_gt",           
-        "sam_auv_v1/base_link_gt", 
-        stamp,
+        "odom",           
+        "sam_mocap2/base_link", 
+        rclcpp::Time(0),
         tf2::durationFromSec(0.05));
-        tf2::doTransform(tf_gt, tf_gt, utm_map_gt_);
+        // tf2::doTransform(tf_gt, tf_gt, utm_map_gt_);
 
     }
     catch (tf2::TransformException &ex) {
@@ -107,24 +107,67 @@ public:
       return;
     }
 
-    double t = this->now().seconds();
-    
-    log_file_ << t << ", "
-              << tf_est.transform.translation.x  << ", "
-              << tf_est.transform.translation.y  << ", "
-              << tf_est.transform.translation.z  << ", "
-              << tf_est.transform.rotation.w     << ", "
-              << tf_est.transform.rotation.x     << ", "
-              << tf_est.transform.rotation.y     << ", "
-              << tf_est.transform.rotation.z     << ", "
-              << tf_gt.transform.translation.x   << ", "
-              << tf_gt.transform.translation.y   << ", "
-              << tf_gt.transform.translation.z   << ", "
-              << tf_gt.transform.rotation.w      << ", "
-              << tf_gt.transform.rotation.x      << ", "
-              << tf_gt.transform.rotation.y      << ", "
-              << tf_gt.transform.rotation.z      << "\n";
-    log_file_.flush();
+// 2) Extract the estimator’s quaternion EXACTLY as tf_est gives it:
+  //    (We will leave it untouched.)
+  tf2::Quaternion q_est(
+    tf_est.transform.rotation.x,
+    tf_est.transform.rotation.y,
+    tf_est.transform.rotation.z,
+    tf_est.transform.rotation.w );
+  q_est.normalize();
+
+  // 3) Extract the raw GT quaternion (bodyGT → odom). This is still in ENU
+  //    (because TF has already applied your static NED→ENU), but in a body
+  //    frame whose axes are X→forward, Y→right, Z→down.
+  tf2::Quaternion q_gt(
+    tf_gt.transform.rotation.x,
+    tf_gt.transform.rotation.y,
+    tf_gt.transform.rotation.z,
+    tf_gt.transform.rotation.w );
+  q_gt.normalize();
+
+  // 4) Build the 180° about X “flip” quaternion.
+  //    This maps (forward,right,down) → (forward,left,up).
+  tf2::Quaternion q_flip;
+  q_flip.setRPY(M_PI, 0.0, 0.0);  // (x=1, y=0, z=0, w=0) in (x,y,z,w) form
+  q_flip.normalize();
+
+  tf2::Quaternion q_gt_corrected = q_gt * q_flip;
+  q_gt_corrected.normalize();
+
+
+  tf2::Quaternion q_yaw90;
+  q_yaw90.setRPY(0.0, 0.0, M_PI/2.0);  
+  q_yaw90.normalize();
+
+  tf2::Quaternion q_gt_final = q_gt_corrected;
+  q_gt_final.normalize();
+  // 6) Fetch a high-precision timestamp (sim time or wall-time, as before).
+  double t = this->now().seconds();
+  RCLCPP_INFO(this->get_logger(), "Logging poses at time: %.6f but timestamp is %.6f", t, stamp.seconds());
+
+
+  // 6) Write everything into the CSV, using q_gt_enu instead of q_ned:
+  log_file_ << std::fixed << std::setprecision(6)
+            << t << ", "
+            // Estimated pose (already in ENU):
+            << tf_est.transform.translation.x  << ", "
+            << tf_est.transform.translation.y  << ", "
+            << tf_est.transform.translation.z  << ", "
+            << tf_est.transform.rotation.w     << ", "
+            << tf_est.transform.rotation.x     << ", "
+            << tf_est.transform.rotation.y     << ", "
+            << tf_est.transform.rotation.z     << ", "
+            // GT pose, but *converted* to ENU:
+            << tf_gt.transform.translation.x   << ", "  // (position: NED→ENU positional conversion 
+                                                       // is already handled by lookupTransform into “odom”)
+            << tf_gt.transform.translation.y   << ", "
+            << tf_gt.transform.translation.z   << ", "
+            << q_gt_final.getW()           << ", "
+            << q_gt_final.getX()           << ", "
+            << q_gt_final.getY()           << ", "
+            << q_gt_final.getZ()           << "\n";
+  log_file_.flush();
   }
 
 private:

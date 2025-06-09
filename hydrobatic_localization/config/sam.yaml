@@ -2,21 +2,21 @@
 imu:
   gravity:               9.818
   accel_noise_sigma:     0.185    # m/s^2/√Hz
-  gyro_noise_sigma:      0.000120835   # rad/s/√Hz
-  accel_bias_rw_sigma:   0.0137  # m/s^2
-  gyro_bias_rw_sigma:    0.0005585 
-  integration_error_cov: 1e-3
-  bias_acc_omega_init:   1e-3
+  gyro_noise_sigma:      0.0000120835   # rad/s/√Hz
+  accel_bias_rw_sigma:   0.00137  # m/s^2
+  gyro_bias_rw_sigma:    0.00005585 
+  integration_error_cov: 1e-4
+  bias_acc_omega_init:   1e-2
   sample_rate:        0.008       # dt between imu readings
 
 sbg:
   gravity:               9.818
-  accel_noise_sigma:     0.516667
-  gyro_noise_sigma:      0.000067079
+  accel_noise_sigma:     0.1516667
+  gyro_noise_sigma:      0.067079
   accel_bias_rw_sigma:   0.014
-  gyro_bias_rw_sigma:    0.00008901
-  integration_error_cov: 1e-3
-  bias_acc_omega_init:   1e-3
+  gyro_bias_rw_sigma:    0.08901
+  integration_error_cov: 1e-4
+  bias_acc_omega_init:   1e-1
   sample_rate:        0.04
 
 extrinsics:
@@ -33,8 +33,8 @@ noise_models:
     bias_sigma:     [1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3]
 
   motion_model_sigma: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
-  dvl_sigma:           [0.05,  0.05,  10.0]
+  dvl_sigma:           [0.01,  0.01,  10.0]
   gps_sigma:           [0.5,   0.5,   0.5]
-  barometer_sigma:     [0.001]
+  barometer_sigma:     [0.01]
 
-water_density: 998.29
+water_density: 998.68
