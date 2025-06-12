@@ -139,6 +139,8 @@ StateEstimator::StateEstimator()
       "motion_model_odom", 10);
   pose_pub_ = this->create_publisher<nav_msgs::msg::Odometry>(
       dead_reckoning_msgs::msg::Topics::DR_ODOM_TOPIC, 10);
+  utm_publisher_ = this->create_publisher<std_msgs::msg::String>(
+      sam_msgs::msg::Topics::UTM_ZONE_BAND, 10);
 
   KeyframeTimer = this->create_wall_timer(
       std::chrono::milliseconds(1000/kf_interval_hz_), std::bind(&StateEstimator::KeyframeTimerCallback, this));
@@ -155,6 +157,19 @@ StateEstimator::StateEstimator()
   noise_lin_y_ = std::normal_distribution<double>(0.0, sigma_lin);
   noise_lin_z_ = std::normal_distribution<double>(0.0, sigma_lin);
 
+  utm_timer_ = this->create_wall_timer(
+      std::chrono::milliseconds(1000), std::bind(&StateEstimator::utm_timer_publisher, this));
+  
+}
+
+
+void StateEstimator::utm_timer_publisher()
+{
+  if (!map_initialized_) {
+    RCLCPP_WARN(this->get_logger(), "Map not initialized, skipping UTM zone publication");
+    return; 
+  }
+  utm_publisher_->publish(utm_zone_band_);
 }
 
 void StateEstimator::gt_velocity_callback(const geometry_msgs::msg::TwistStamped::SharedPtr msg)
@@ -599,10 +614,13 @@ void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr m
       );
       char bandLetter = gridZone.back();
       RCLCPP_INFO(this->get_logger(), "Band letter: %c", bandLetter);
+      std::string utm = "utm_" + std::to_string(utm_zone) + "_" + bandLetter;
       // Create a static transform from "utm" to "map" using the UTM coordinates.
+      utm_zone_band_ = std_msgs::msg::String();
+      utm_zone_band_.data = utm;
       geometry_msgs::msg::TransformStamped map_transform;
       map_transform.header.stamp = this->get_clock()->now();
-      map_transform.header.frame_id = "utm_" + std::to_string(utm_zone) + "_" + bandLetter; 
+      map_transform.header.frame_id = utm ;
       map_transform.child_frame_id = "map";
       map_transform.transform.translation.x = utm_x;
       map_transform.transform.translation.y = utm_y;

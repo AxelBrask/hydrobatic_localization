@@ -18,7 +18,7 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <geometry_msgs/msg/twist_stamped.hpp>
-
+#include <std_msgs/msg/string.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/msg/velocity_stamped.hpp>
@@ -118,6 +118,8 @@ private:
   void gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
   
   void gt_velocity_callback(const geometry_msgs::msg::TwistStamped::SharedPtr msg);
+
+  void utm_timer_publisher();
   // ROS publishers and subscribers
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr stim_imu_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sbg_imu_sub_;
@@ -134,7 +136,8 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr gt_pressure_pub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr gt_pose_sub_;
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub_;
-  
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr utm_publisher_;
+  rclcpp::TimerBase::SharedPtr utm_timer_;
 
   // ROS Control subscribers with message filters
   // Thruster-only sync
@@ -213,6 +216,7 @@ private:
   double sum_lat_, sum_lon_, sum_alt_;
   double cov_threshold_ =  10.0;
   Vector3 position_variances;
+  std_msgs::msg::String utm_zone_band_;
 
   // Barometer
   double first_barometer_measurement_;
