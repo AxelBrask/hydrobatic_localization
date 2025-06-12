@@ -43,6 +43,7 @@
 #include <boost/optional.hpp>
 #include <GeographicLib/LocalCartesian.hpp>
 #include <GeographicLib/UTMUPS.hpp>
+#include <GeographicLib/MGRS.hpp>
 #include <fstream>
 #include <chrono>
 #include <filesystem> 

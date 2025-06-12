@@ -591,11 +591,18 @@ void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr m
       bool northp;
       GeographicLib::UTMUPS::Forward(avg_lat, avg_lon, utm_zone, northp, utm_x, utm_y);
       utm_z = avg_alt;
-
+      std::string gridZone;
+      GeographicLib::MGRS::Forward(
+          utm_zone, northp, utm_x, utm_y,
+          -1,
+          gridZone
+      );
+      char bandLetter = gridZone.back();
+      RCLCPP_INFO(this->get_logger(), "Band letter: %c", bandLetter);
       // Create a static transform from "utm" to "map" using the UTM coordinates.
       geometry_msgs::msg::TransformStamped map_transform;
       map_transform.header.stamp = this->get_clock()->now();
-      map_transform.header.frame_id = "utm_" + std::to_string(utm_zone) + "_V"; //need to get the correct band somehow
+      map_transform.header.frame_id = "utm_" + std::to_string(utm_zone) + "_" + bandLetter; 
       map_transform.child_frame_id = "map";
       map_transform.transform.translation.x = utm_x;
       map_transform.transform.translation.y = utm_y;
