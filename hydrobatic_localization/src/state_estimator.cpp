@@ -27,7 +27,8 @@ StateEstimator::StateEstimator()
   bool use_sim_time_;
   // this->declare_parameter<bool>("use_sim_time", false);
   this->get_parameter("use_sim_time", use_sim_time_);
-
+  this->declare_parameter<bool>("use_sensor_covariance", false);
+  this->get_parameter("use_sensor_covariance", use_sensor_covariance_);
 
   std::string config_file;
   if (std::filesystem::path(config_file_).is_absolute()) {
@@ -38,7 +39,10 @@ StateEstimator::StateEstimator()
   }
 
   RCLCPP_INFO(this->get_logger(), "Loading config from %s", config_file.c_str());
-
+  //logg the ros parameters
+  RCLCPP_INFO(this->get_logger(), "Using motion model: %s", using_motion_model_ ? "true" : "false");
+  RCLCPP_INFO(this->get_logger(), "Init from ground truth: %s", init_from_ground_truth_ ? "true" : "false");
+  RCLCPP_INFO(this->get_logger(), "Use sensor covariance: %s", use_sensor_covariance_ ? "true" : "false");
   name_space_ = this->get_namespace();
   //remove leading slashes from namespace
   if (name_space_.front() == '/') {
@@ -826,12 +830,12 @@ void StateEstimator::KeyframeTimerCallback()
   }
   // Add the DVL, GPS and Barometer factors to the graph.
   if (new_dvl_measurement_) {  
-    gtsam_graph_->addDvlFactor(latest_dvl_measurement_, dvl_gyro, covariance_dvl_ );
+    gtsam_graph_->addDvlFactor(latest_dvl_measurement_, dvl_gyro, covariance_dvl_, use_sensor_covariance_);
     new_dvl_measurement_ = false;
   }
 
   if (new_gps_measurement_) {
-    gtsam_graph_->addGpsFactor(latest_gps_point_,position_variances);
+    gtsam_graph_->addGpsFactor(latest_gps_point_, position_variances, use_sensor_covariance_);
     new_gps_measurement_ = false;
   }
 

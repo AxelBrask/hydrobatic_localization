@@ -177,9 +177,9 @@ void GtsamGraph::addMotionModelFactor(const double start_time, const double end_
 
 }
 
-void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro, const Vector3& dvl_velocity_covariance)
+void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro, const Vector3& dvl_velocity_covariance, const bool& use_sensor_covariance)
 {
-  Vector3 sigmas = dvl_velocity_covariance.cwiseSqrt();
+  Vector3 sigmas = use_sensor_covariance ? dvl_velocity_covariance.cwiseSqrt() : config_.noise_models.dvl_sigma;
   auto dvl_noise = noiseModel::Diagonal::Sigmas(sigmas);
   Vector3 base_link_to_dvl_offset = config_.extrinsics.dvl_sensor_offset;
 
@@ -188,9 +188,10 @@ void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro, 
    dvl_velocity, gyro, base_link_to_dvl_offset, base_link_dvl_rotation, dvl_noise));
 }
 
-void GtsamGraph::addGpsFactor(const Point3& gps_point, const Vector3& gps_variances) 
+void GtsamGraph::addGpsFactor(const Point3& gps_point, const Vector3& gps_variances, const bool& use_sensor_covariance) 
 {
-  auto gps_noise = noiseModel::Diagonal::Variances(gps_variances);
+  Vector3 gps_sigma = use_sensor_covariance ? gps_variances.cwiseSqrt() : config_.noise_models.gps_sigma;
+  auto gps_noise = noiseModel::Diagonal::Sigmas(gps_sigma);
   Point3 base_to_gps_offset(
   config_.extrinsics.gps_sensor_offset.x(),
   config_.extrinsics.gps_sensor_offset.y(),

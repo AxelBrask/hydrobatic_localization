@@ -186,6 +186,7 @@ private:
   double current_time;
   double last_time_;
   int kf_interval_hz_;
+  bool use_sensor_covariance_;
 
   // For initialization
   std::vector<Rot3> estimated_rotations_;

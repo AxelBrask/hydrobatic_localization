@@ -8,6 +8,7 @@
     <arg name = "init_from_ground_truth" default = "false"/>    
     <arg name = "bag_file" default = "/home/axel/colcon_ws/may_22/rosbag2_2025_05_22-15_22_01"/>
     <arg name="robot_urdf" default="sam_auv.urdf"/>
+    <arg name="use_sensor_covariance" default="false"/>
 
 
     <executable cmd="ros2 bag play $(var bag_file) --clock" output="screen" />
@@ -18,6 +19,7 @@
         <param name = "inference_strategy" value = '$(var inference_strategy)'/>
         <param name = "init_from_ground_truth" value = "$(var init_from_ground_truth)"/>
         <param name = "kf_interval_hz" value = '$(var kf_interval_hz)'/>
+        <param name = "use_sensor_covariance" value = "$(var use_sensor_covariance)"/>
     </node>
 
     <node pkg="hydrobatic_localization" exec="dvl_raw.py" output="screen" namespace = "$(var robot_name)">
