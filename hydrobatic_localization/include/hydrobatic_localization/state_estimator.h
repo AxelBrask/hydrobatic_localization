@@ -8,6 +8,7 @@
 #include <sensor_msgs/msg/fluid_pressure.hpp>
 #include <sam_msgs/msg/topics.hpp>
 #include <smarc_msgs/msg/topics.hpp>
+#include <sam_msgs/msg/links.hpp>
 #include <smarc_msgs/msg/dvl.hpp>
 #include <smarc_msgs/msg/thruster_feedback.hpp>
 #include <smarc_msgs/msg/percent_stamped.hpp>
@@ -198,6 +199,7 @@ private:
   // DVL
   Vector3 latest_dvl_measurement_;
   bool new_dvl_measurement_;
+  Vector3 covariance_dvl_;
 
   // GPS
   Point3 latest_gps_point_;
@@ -208,6 +210,7 @@ private:
   int number_of_gps_measurements_for_map_init_ = 5;
   double sum_lat_, sum_lon_, sum_alt_;
   double cov_threshold_ =  10.0;
+  Vector3 position_variances;
 
   // Barometer
   double first_barometer_measurement_;

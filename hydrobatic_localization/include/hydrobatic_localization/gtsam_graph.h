@@ -86,13 +86,13 @@ public:
    * @param dvl_velocity: the velocity measurement from the DVL
    * @param gyro: the angular velocity measurement from the IMU
    */
-  void addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro);
+  void addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro, const Vector3& dvl_velocity_covariance);
 
   /**
    * @brief Add a GPS factor to the factor graph
    * @param gps_point: the relative GPS measurment to the navigation frame
    */
-  void addGpsFactor(const Point3& gps_point);
+  void addGpsFactor(const Point3& gps_point, const Vector3& gps_variances);
 
   /**
    * @brief Add a barometer factor to the factor graph

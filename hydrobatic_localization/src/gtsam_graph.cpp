@@ -81,13 +81,13 @@ void GtsamGraph::initGraphAndState(const Rot3& initial_rot, const Point3& initia
   graph_.addPrior<Pose3>(X(0), prior_pose, pose_noise);
   graph_.addPrior<Vector3>(V(0), prior_velocity, velocity_noise);
   graph_.addPrior<imuBias::ConstantBias>(B(0), prior_imu_bias, bias_noise);
-  // graph_.addPrior<imuBias::ConstantBias>(B2(0), prior_sbg_bias, bias_noise); 
+  graph_.addPrior<imuBias::ConstantBias>(B2(0), prior_sbg_bias, bias_noise); 
 
   // Insert initial estimates
   initial_estimate_.insert(X(0), prior_pose);
   initial_estimate_.insert(V(0), prior_velocity);
   initial_estimate_.insert(B(0), prior_imu_bias);
-  // initial_estimate_.insert(B2(0), prior_sbg_bias);
+  initial_estimate_.insert(B2(0), prior_sbg_bias);
 
   // Save the initial state.
   previous_state_ = NavState(prior_pose, prior_velocity);
@@ -177,9 +177,10 @@ void GtsamGraph::addMotionModelFactor(const double start_time, const double end_
 
 }
 
-void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro)
+void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro, const Vector3& dvl_velocity_covariance)
 {
-  auto dvl_noise = noiseModel::Diagonal::Sigmas(config_.noise_models.dvl_sigma);
+  Vector3 sigmas = dvl_velocity_covariance.cwiseSqrt();
+  auto dvl_noise = noiseModel::Diagonal::Sigmas(sigmas);
   Vector3 base_link_to_dvl_offset = config_.extrinsics.dvl_sensor_offset;
 
   Rot3 base_link_dvl_rotation = Rot3::Identity();
@@ -187,9 +188,9 @@ void GtsamGraph::addDvlFactor(const Vector3& dvl_velocity, const Vector3& gyro)
    dvl_velocity, gyro, base_link_to_dvl_offset, base_link_dvl_rotation, dvl_noise));
 }
 
-void GtsamGraph::addGpsFactor(const Point3& gps_point) 
+void GtsamGraph::addGpsFactor(const Point3& gps_point, const Vector3& gps_variances) 
 {
-  auto gps_noise = noiseModel::Diagonal::Sigmas(config_.noise_models.gps_sigma);
+  auto gps_noise = noiseModel::Diagonal::Variances(gps_variances);
   Point3 base_to_gps_offset(
   config_.extrinsics.gps_sensor_offset.x(),
   config_.extrinsics.gps_sensor_offset.y(),
@@ -230,7 +231,7 @@ void GtsamGraph::addInitialEstimate()
     initial_estimate_.insert(X(current_index_+1), initial_estimate_.at<Pose3>(X(current_index_)));
     initial_estimate_.insert(V(current_index_+1), initial_estimate_.at<Vector3>(V(current_index_)));
     initial_estimate_.insert(B(current_index_+1), current_imu_bias_);
-    // initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
+    initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
   }
   else
   {
@@ -238,7 +239,7 @@ void GtsamGraph::addInitialEstimate()
   initial_estimate_.insert( X(current_index_+1),results_.at<Pose3>(X(current_index_)) );
   initial_estimate_.insert( V(current_index_+1), results_.at<Vector3>(V(current_index_)) );
   initial_estimate_.insert( B(current_index_+1), current_imu_bias_ );
-  // initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
+  initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
   }
 }
 
@@ -279,12 +280,12 @@ void GtsamGraph::optimize() {
        results_ = fixed_lag_smoother_->calculateEstimate();
       current_imu_bias_ = results_.at<imuBias::ConstantBias>(B(current_index_));
         //  std::cout << "Current IMU Bias: " << current_imu_bias_.vector().transpose() << std::endl;
-      // current_sbg_bias_ = results_.at<imuBias::ConstantBias>(B2(current_index_));
+      current_sbg_bias_ = results_.at<imuBias::ConstantBias>(B2(current_index_));
       previous_state_ = NavState(results_.at<Pose3>(X(current_index_)), results_.at<Vector3>(V(current_index_)));
       graph_.resize(0);
       initial_estimate_.clear();
       imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
-      // sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
+      sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
   } 
 
 
@@ -296,12 +297,12 @@ void GtsamGraph::optimize() {
     results_ = isam_->calculateEstimate();
     current_imu_bias_ = results_.at<imuBias::ConstantBias>(B(current_index_));
     // std::cout << "Current IMU Bias: " << current_imu_bias_.vector().transpose() << std::endl;
-    // current_sbg_bias_ = results_.at<imuBias::ConstantBias>(B2(current_index_));
+    current_sbg_bias_ = results_.at<imuBias::ConstantBias>(B2(current_index_));
     previous_state_ = NavState(results_.at<Pose3>(X(current_index_)), results_.at<Vector3>(V(current_index_)));
     graph_.resize(0);
     initial_estimate_.clear();
     imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
-    // sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
+    sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
 
   }
 

@@ -40,6 +40,11 @@ StateEstimator::StateEstimator()
   RCLCPP_INFO(this->get_logger(), "Loading config from %s", config_file.c_str());
 
   name_space_ = this->get_namespace();
+  //remove leading slashes from namespace
+  if (name_space_.front() == '/') {
+    name_space_.erase(0, 1);
+  }
+  std::cout << "Namespace: " << name_space_ << std::endl;
   InferenceStrategy inference_strategy;
   if(inference_strategy_ == "ISAM2"){
     inference_strategy = InferenceStrategy::ISAM2;
@@ -61,9 +66,9 @@ StateEstimator::StateEstimator()
       sam_msgs::msg::Topics::STIM_IMU_TOPIC, 100,
       std::bind(&StateEstimator::imu_callback, this, std::placeholders::_1));
 
-  // sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
-  //     sam_msgs::msg::Topics::SBG_IMU_TOPIC, 100,
-  //     std::bind(&StateEstimator::sbg_callback, this, std::placeholders::_1));
+  sbg_imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
+      sam_msgs::msg::Topics::SBG_IMU_TOPIC, 100,
+      std::bind(&StateEstimator::sbg_callback, this, std::placeholders::_1));
 
    dvl_sub_ = this->create_subscription<smarc_msgs::msg::DVL>(
         sam_msgs::msg::Topics::DVL_TOPIC, 10, /*use "/sam/core/dvl_3beams" for real sam otherwise use */
@@ -74,15 +79,15 @@ StateEstimator::StateEstimator()
       std::bind(&StateEstimator::barometer_callback, this, std::placeholders::_1));
 
 
-      gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
-      smarc_msgs::msg::Topics::GPS_TOPIC, 10,
-      std::bind(&StateEstimator::gps_callback, this, std::placeholders::_1));
+  gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
+  smarc_msgs::msg::Topics::GPS_TOPIC, 10,
+  std::bind(&StateEstimator::gps_callback, this, std::placeholders::_1));
 
-  depth_pub_ = this ->create_publisher<geometry_msgs::msg::PoseStamped>(
-      "depth", 10);
+  // depth_pub_ = this ->create_publisher<geometry_msgs::msg::PoseStamped>(
+  //     "depth", 10);
 
-  gt_pressure_pub_ = this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
-      "gt_pressure_depth", 10);
+  // gt_pressure_pub_ = this->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
+  //     "gt_pressure_depth", 10);
   //Subscribe to gt odometry if init_from_ground_truth_ is true
   if(init_from_ground_truth_)
   {
@@ -141,7 +146,7 @@ StateEstimator::StateEstimator()
 
   std::random_device rd;
   noise_generator_ = std::default_random_engine(rd());
-  double sigma_lin = 0.00;   // set the noise of the gt vels to whaterver you want
+  double sigma_lin = 0.05;   // set the noise of the gt vels to whaterver you want
   noise_lin_x_ = std::normal_distribution<double>(0.0, sigma_lin);
   noise_lin_y_ = std::normal_distribution<double>(0.0, sigma_lin);
   noise_lin_z_ = std::normal_distribution<double>(0.0, sigma_lin);
@@ -189,7 +194,7 @@ void StateEstimator::gt_velocity_callback(const geometry_msgs::msg::TwistStamped
 
   geometry_msgs::msg::TwistStamped vel_odom;
   vel_odom.header.stamp = vel_mocap.header.stamp;
-  vel_odom.header.frame_id = "odom"; // Odom frame in ENU
+  vel_odom.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK; // Odom frame in ENU
   vel_odom.twist.linear.x  = v_odom.x();
   vel_odom.twist.linear.y  = v_odom.y();
   vel_odom.twist.linear.z  = v_odom.z();
@@ -202,9 +207,9 @@ void StateEstimator::gt_velocity_callback(const geometry_msgs::msg::TwistStamped
   gt_velocity_ = gtsam::Vector3(noisy_lin_x, noisy_lin_y, noisy_lin_z);
 
   nav_msgs::msg::Odometry odom_msg;
-  odom_msg.header.frame_id = "odom";
-  odom_msg.child_frame_id = "estimated_pose"; // Odom frame in ENU
-  
+  odom_msg.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK;
+  odom_msg.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK;
+
   odom_msg.twist.twist.linear.x = v_odom.x();
   odom_msg.twist.twist.linear.y = v_odom.y();
   odom_msg.twist.twist.linear.z = v_odom.z();
@@ -250,7 +255,7 @@ void StateEstimator::gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
       return;                                 
       }
       map_to_blgt.header.frame_id = "map";
-      map_to_blgt.child_frame_id  = "odom";
+      map_to_blgt.child_frame_id  = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK;
   tf2::Quaternion q = tf2::Quaternion(map_to_blgt.transform.rotation.x,
                                      map_to_blgt.transform.rotation.y,
                                      map_to_blgt.transform.rotation.z,
@@ -273,7 +278,7 @@ void StateEstimator::gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
   geometry_msgs::msg::TransformStamped body_to_odom_init;
   try {
     body_to_odom_init = tf_buffer_.lookupTransform(
-      "odom",                     
+      name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK,                     
       vel_in.header.frame_id, 
       rclcpp::Time(0),            
       tf2::durationFromSec(0.1)   
@@ -298,7 +303,7 @@ void StateEstimator::gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
       tf2::Vector3 w_odom_init = R_body_to_odom_init * w_body_init;
 
       init_vel_odom_.header.stamp    = vel_in.header.stamp;
-      init_vel_odom_.header.frame_id = "odom";
+      init_vel_odom_.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK;
       init_vel_odom_.velocity.linear.x  = v_odom_init.x();
       init_vel_odom_.velocity.linear.y  = v_odom_init.y();
       init_vel_odom_.velocity.linear.z  = v_odom_init.z();
@@ -316,7 +321,7 @@ void StateEstimator::gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
     geometry_msgs::msg::TransformStamped body_to_odom;
     try {
       body_to_odom = tf_buffer_.lookupTransform(
-        "odom",                       
+        name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK,                   
         msg->child_frame_id,          
         tf2::TimePointZero,           
         tf2::durationFromSec(0.1)     
@@ -453,6 +458,10 @@ void StateEstimator::dvl_callback(const smarc_msgs::msg::DVL::SharedPtr msg)
 {  
     Vector3 vel_dvl(msg->velocity.x, msg->velocity.y, msg->velocity.z);
     latest_dvl_measurement_ = vel_dvl;
+    covariance_dvl_ << 
+          msg->velocity_covariance[0],  
+          msg->velocity_covariance[4],  
+          msg->velocity_covariance[8];  
     dvl_gyro = gyro;
     new_dvl_measurement_ = true;
 }
@@ -464,13 +473,13 @@ void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::S
   double water_density  = gtsam_graph_->getWaterDensity();
   double depth = -(measured_pressure - atmospheric_pressure_) / (water_density * 9.818); //Down negative 
   // RCLCPP_INFO(this->get_logger(), "Barometer  depth: %f", depth);
-  geometry_msgs::msg::PoseStamped depth_msg;
-  depth_msg.header.stamp = msg->header.stamp;
-  depth_msg.header.frame_id = "sam/pressure_link"; //
-  depth_msg.pose.position.x = 0.0; 
-  depth_msg.pose.position.y = 0.0; 
-  depth_msg.pose.position.z = depth; 
-  depth_pub_->publish(depth_msg);
+  // geometry_msgs::msg::PoseStamped depth_msg;
+  // depth_msg.header.stamp = msg->header.stamp;
+  // depth_msg.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::PRESS_LINK; //
+  // depth_msg.pose.position.x = 0.0; 
+  // depth_msg.pose.position.y = 0.0; 
+  // depth_msg.pose.position.z = depth; 
+  // depth_pub_->publish(depth_msg);
   if(map_initialized_ && is_graph_initialized_){
     if (!baro_calibrated) {
       auto ext = gtsam_graph_->getExtrinsics();
@@ -482,27 +491,27 @@ void StateEstimator::barometer_callback(const sensor_msgs::msg::FluidPressure::S
   latest_depth_measurement_ =  depth - static_offset_; // depth in the odom frame
   new_barometer_measurement_received_ = true;
   }
-  // try{
+//   try{
 // // //     //lookup the depth of pressure in the mocap frame
-    // geometry_msgs::msg::TransformStamped T_mocap_from_pressure = tf_buffer_.lookupTransform(
-      // "mocap", 
-      // "sam_mocap2/pressure_link",
-      // msg->header.stamp,       
-      // tf2::durationFromSec(0.1) 
-    // );
-    // geometry_msgs::msg::PoseWithCovarianceStamped pressure_pose;
-    // pressure_pose.header.stamp = msg->header.stamp;
-    // pressure_pose.header.frame_id = "mocap"; 
-    // pressure_pose.pose.pose.position.x = T_mocap_from_pressure.transform.translation.x;
-    // pressure_pose.pose.pose.position.y = T_mocap_from_pressure.transform.translation.y;
-    // pressure_pose.pose.pose.position.z = T_mocap_from_pressure.transform.translation.z;
-   // Publish the pressure pose
-    // gt_pressure_pub_->publish(pressure_pose);
-  // 
-  // } catch (tf2::TransformException &ex) {
-    // RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
-    // return;
-  // }
+//     geometry_msgs::msg::TransformStamped T_mocap_from_pressure = tf_buffer_.lookupTransform(
+//       "mocap", 
+//       name_space_ + "/" + sam_msgs::msg::Links::PRESS_LINK,
+//       msg->header.stamp,       
+//       tf2::durationFromSec(0.1) 
+//     );
+//     geometry_msgs::msg::PoseWithCovarianceStamped pressure_pose;
+//     pressure_pose.header.stamp = msg->header.stamp;
+//     pressure_pose.header.frame_id = "mocap"; 
+//     pressure_pose.pose.pose.position.x = T_mocap_from_pressure.transform.translation.x;
+//     pressure_pose.pose.pose.position.y = T_mocap_from_pressure.transform.translation.y;
+//     pressure_pose.pose.pose.position.z = T_mocap_from_pressure.transform.translation.z;
+//   //  Publish the pressure poses
+//     gt_pressure_pub_->publish(pressure_pose);
+  
+//   } catch (tf2::TransformException &ex) {
+//     RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
+//     return;
+//   }
 }
 
 
@@ -516,8 +525,10 @@ void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr m
   double utm_x, utm_y, utm_z;
   if(!map_initialized_ ){
   // if sim time is used, take the ground truth as gps reading
-  if(this->get_parameter("use_sim_time").as_bool()){
-    try{
+  if(this->get_parameter("use_sim_time").as_bool())
+  {
+    try
+    {
       transformStamped = tf_buffer_.lookupTransform("utm_34_V", "sam_auv_v1/gps_link_gt",
                                                       tf2::TimePointZero, std::chrono::seconds(1));
       utm_x = transformStamped.transform.translation.x;
@@ -551,90 +562,98 @@ void StateEstimator::gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr m
       return;
     }
   }
+
   // if not using the sim, take the real gps reading
-  else {
-      double var = msg->position_covariance[0];
-  if (var > cov_threshold_*cov_threshold_) {
-    RCLCPP_WARN(get_logger(),
-    "GPS covariance too high (sigma=%.1f m), dropping fix", std::sqrt(var));
-    return;
+  else
+   {
+    RCLCPP_INFO(this->get_logger(), "Waiting for GPS fix to initialize map frame");
+    double var = msg->position_covariance[0];
+    if (var > cov_threshold_*cov_threshold_)
+    {
+      RCLCPP_WARN(get_logger(),
+      "GPS covariance too high (sigma=%.1f m), dropping fix", std::sqrt(var));
+      return;
+    }
+      sum_lat_ += msg->latitude;
+      sum_lon_ += msg->longitude;
+      sum_alt_ += msg->altitude;
+      number_of_gps_measurements_++;
+    
+    if (number_of_gps_measurements_ >= number_of_gps_measurements_for_map_init_) {
+      double avg_lat = sum_lat_  / number_of_gps_measurements_;
+      double avg_lon = sum_lon_  / number_of_gps_measurements_;
+      double avg_alt = sum_alt_  / number_of_gps_measurements_;
+      int utm_zone;
+      bool northp;
+      GeographicLib::UTMUPS::Forward(avg_lat, avg_lon, utm_zone, northp, utm_x, utm_y);
+      utm_z = avg_alt;
+
+      // Create a static transform from "utm" to "map" using the UTM coordinates.
+      geometry_msgs::msg::TransformStamped map_transform;
+      map_transform.header.stamp = this->get_clock()->now();
+      map_transform.header.frame_id = "utm_" + std::to_string(utm_zone) + "_V"; //need to get the correct band somehow
+      map_transform.child_frame_id = "map";
+      map_transform.transform.translation.x = utm_x;
+      map_transform.transform.translation.y = utm_y;
+      map_transform.transform.translation.z = 0;
+      // Use an identity rotation for the map frame.
+      map_transform.transform.rotation.x = 0.0;
+      map_transform.transform.rotation.y = 0.0;
+      map_transform.transform.rotation.z = 0.0;
+      map_transform.transform.rotation.w = 1.0;
+      tf_static_broadcaster_->sendTransform(map_transform);
+      // first utm coordinates of the base_link
+      first_utm_x = utm_x;
+      first_utm_y = utm_y;
+      first_utm_z = utm_z;
+      RCLCPP_INFO(this->get_logger(), 
+                  "Broadcasted static map transform at local x: %f, y: %f, z: %f", 
+                  utm_x, utm_y, utm_z); 
+      map_initialized_ = true;
+
+      return;
+   }
+  return;
   }
-    sum_lat_ += msg->latitude;
-    sum_lon_ += msg->longitude;
-    sum_alt_ += msg->altitude;
-    number_of_gps_measurements_++;
-   
-   if (number_of_gps_measurements_ >= number_of_gps_measurements_for_map_init_) {
-    double avg_lat = sum_lat_  / number_of_gps_measurements_;
-    double avg_lon = sum_lon_  / number_of_gps_measurements_;
-    double avg_alt = sum_alt_  / number_of_gps_measurements_;
-    int utm_zone;
-    bool northp;
-    GeographicLib::UTMUPS::Forward(avg_lat, avg_lon, utm_zone, northp, utm_x, utm_y);
-    utm_z = avg_alt;
-
-    // Create a static transform from "utm" to "map" using the UTM coordinates.
-    geometry_msgs::msg::TransformStamped map_transform;
-    map_transform.header.stamp = this->get_clock()->now();
-    map_transform.header.frame_id = "utm_34_V";     // Frmae name from sim
-    map_transform.child_frame_id = "map";        
-    map_transform.transform.translation.x = utm_x;
-    map_transform.transform.translation.y = utm_y;
-    map_transform.transform.translation.z = 0;
-    // Use an identity rotation for the map frame.
-    map_transform.transform.rotation.x = 0.0;
-    map_transform.transform.rotation.y = 0.0;
-    map_transform.transform.rotation.z = 0.0;
-    map_transform.transform.rotation.w = 1.0;
-    tf_static_broadcaster_->sendTransform(map_transform);
-    // first utm coordinates of the base_link
-    first_utm_x = utm_x;
-    first_utm_y = utm_y;
-    first_utm_z = utm_z;
-    RCLCPP_INFO(this->get_logger(), 
-                "Broadcasted static map transform at local x: %f, y: %f, z: %f", 
-                utm_x, utm_y, utm_z);
-    map_initialized_ = true;
-
-    return;
- }
- return;
-}
 return;
   }
   // Convert the GPS coordinates to UTM coordinates
-  //   int utm_zone;
-  //   bool northp;
-  //   GeographicLib::UTMUPS::Forward(msg->latitude, msg->longitude, utm_zone, northp, utm_x, utm_y);
-  //   utm_z = msg->altitude;
-  // // Compare the new gps message with the first one to get the offset, but we need it in the odom frame
-  // if(is_graph_initialized_){
-  //   Point3 map_to_odom_offset;
-  //   Rot3 map_to_odom_rotation;
-  //   try{
-  //     transformStamped = tf_buffer_.lookupTransform("map", "odom",
-  //                                                     tf2::TimePointZero, std::chrono::seconds(1));
-  //     map_to_odom_offset = Point3(transformStamped.transform.translation.x,
-  //                                 transformStamped.transform.translation.y,
-  //                                 transformStamped.transform.translation.z);
-  //     map_to_odom_rotation = Rot3(transformStamped.transform.rotation.w,
-  //                                 transformStamped.transform.rotation.x,
-  //                                 transformStamped.transform.rotation.y,
-  //                                 transformStamped.transform.rotation.z);
+  int utm_zone;
+  bool northp;
+  GeographicLib::UTMUPS::Forward(msg->latitude, msg->longitude, utm_zone, northp, utm_x, utm_y);
+  utm_z = msg->altitude;
+  // Compare the new gps message with the first one to get the offset, but we need it in the odom frame
+  if(is_graph_initialized_){
+    Point3 map_to_odom_offset;
+    Rot3 map_to_odom_rotation;
+    try{
+      transformStamped = tf_buffer_.lookupTransform("map", name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK,
+                                                      tf2::TimePointZero, std::chrono::seconds(1));
+      map_to_odom_offset = Point3(transformStamped.transform.translation.x,
+                                  transformStamped.transform.translation.y,
+                                  transformStamped.transform.translation.z);
+      map_to_odom_rotation = Rot3(transformStamped.transform.rotation.w,
+                                  transformStamped.transform.rotation.x,
+                                  transformStamped.transform.rotation.y,
+                                  transformStamped.transform.rotation.z);
 
-  //   }
-  //   catch (tf2::TransformException &ex) {
-  //     RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
-  //     return;
-  //   }
-  //   Point3 gps_in_map(utm_x - first_utm_x, utm_y - first_utm_y, utm_z - first_utm_z);
-  //   // Apply rotation from map to odom
-  //   Point3 gps_in_odom = map_to_odom_rotation.inverse().rotate(gps_in_map - map_to_odom_offset);
-  //   latest_gps_point_ = gps_in_odom;
-  //   new_gps_measurement_ = true;
-  //   // Logg off the gps point of the gps in the odom frame
-  //   RCLCPP_DEBUG(this->get_logger(), "GPS Point: [%f, %f, %f]", latest_gps_point_.x(), latest_gps_point_.y(), latest_gps_point_.z());
-  // }
+    }
+    catch (tf2::TransformException &ex) {
+      RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
+      return;
+    }
+    Point3 gps_in_map(utm_x - first_utm_x, utm_y - first_utm_y, utm_z - first_utm_z);
+    // Apply rotation from map to odom
+    Point3 gps_in_odom = map_to_odom_rotation.inverse().rotate(gps_in_map - map_to_odom_offset);
+    latest_gps_point_ = gps_in_odom;
+    position_variances << 
+        msg->position_covariance[0],  
+        msg->position_covariance[4],  
+        msg->position_covariance[8];  
+    new_gps_measurement_ = true;
+    // Logg off the gps point of the gps in the odom frame
+    RCLCPP_DEBUG(this->get_logger(), "GPS Point: [%f, %f, %f]", latest_gps_point_.x(), latest_gps_point_.y(), latest_gps_point_.z());
+  }
  
 }  
 
@@ -657,11 +676,11 @@ void StateEstimator::KeyframeTimerCallback()
 {
   // need to have at least 6 imu measurements to initialize the graph with the current orientation
   // auto t1 = std::chrono::high_resolution_clock::now();
-  // if(number_of_imu_measurements < 6){
-  //       RCLCPP_INFO(get_logger(),
-  //   "  skipping: only %d IMUs (need ≥6)", number_of_imu_measurements);
-  //   return;
-  //   }
+  if(number_of_imu_measurements < 6){
+        RCLCPP_INFO(get_logger(),
+    "  skipping: only %d IMUs (need ≥6)", number_of_imu_measurements);
+    return;
+    }
   if(!map_initialized_){
       RCLCPP_INFO(get_logger(), "  skipping: map_initialized_ == false");
     return;
@@ -676,7 +695,7 @@ void StateEstimator::KeyframeTimerCallback()
         geometry_msgs::msg::TransformStamped odom_transform;
         try {
           odom_transform = tf_buffer_.lookupTransform(
-            "odom", "sam_mocap2/base_link",
+            name_space_+"/"+sam_msgs::msg::Links::ODOM_LINK, "sam_mocap2/base_link",
             tf2::TimePointZero, std::chrono::seconds(1));
         } catch (tf2::TransformException &ex) {
           RCLCPP_WARN(this->get_logger(), "Could not get transform: %s", ex.what());
@@ -706,7 +725,7 @@ void StateEstimator::KeyframeTimerCallback()
         geometry_msgs::msg::TransformStamped odom_transform;
         odom_transform.header.stamp = this->get_clock()->now();
         odom_transform.header.frame_id = "map";
-        odom_transform.child_frame_id = "odom";
+        odom_transform.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK;
         // translate the map -> odom with -base_to_gps_offset in x and y
         odom_transform.transform.translation.x = -off_map.x(); // x and y were swapped from the sim
         odom_transform.transform.translation.y = -off_map.y();
@@ -731,8 +750,8 @@ void StateEstimator::KeyframeTimerCallback()
       // Broadcast the initial pose.
       geometry_msgs::msg::TransformStamped init_transform;
       init_transform.header.stamp = this->get_clock()->now();
-      init_transform.header.frame_id = "odom";
-      init_transform.child_frame_id = "estimated_pose";
+      init_transform.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK; 
+      init_transform.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK; 
       init_transform.transform.translation.x = initial_position.x();
       init_transform.transform.translation.y = initial_position.y();
       init_transform.transform.translation.z = initial_position.z();
@@ -760,7 +779,7 @@ void StateEstimator::KeyframeTimerCallback()
     }
   
   auto [imu_dt, sbg_dt] = gtsam_graph_->getTij();
-  if (imu_dt <= 0.0/* || sbg_dt <= 0.0*/)
+  if (imu_dt <= 0.0 || sbg_dt <= 0.0)
   {
     RCLCPP_DEBUG(get_logger(),"No new IMU/SBG data this cycle (imu_dt=%.6f, sbg_dt=%.6f), skipping factors + optimize",
       imu_dt, sbg_dt);
@@ -777,8 +796,8 @@ void StateEstimator::KeyframeTimerCallback()
     last_time_ = current_time;
     nav_msgs::msg::Odometry motion_model_odom;
     motion_model_odom.header.stamp = this->get_clock()->now();
-    motion_model_odom.header.frame_id = "odom";
-    motion_model_odom.child_frame_id = "base_link";
+    motion_model_odom.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK;
+    motion_model_odom.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK;
 
     motion_model_odom.pose.pose.position.x = new_state.pose().translation().x();
     motion_model_odom.pose.pose.position.y = new_state.pose().translation().y();
@@ -797,7 +816,7 @@ void StateEstimator::KeyframeTimerCallback()
   // Predict the next state using the preintegrated measurements AND add the imu factor to the graph.
   NavState predictes_imu_state = gtsam_graph_->addImuFactor();
 
-  // NavState predicted_sbg_state = gtsam_graph_->addSbgFactor();
+  NavState predicted_sbg_state = gtsam_graph_->addSbgFactor();
   // RCLCPP_INFO(this->get_logger(), "SBG prediction state: [%f, %f, %f]",
 
 
@@ -807,12 +826,12 @@ void StateEstimator::KeyframeTimerCallback()
   }
   // Add the DVL, GPS and Barometer factors to the graph.
   if (new_dvl_measurement_) {  
-    gtsam_graph_->addDvlFactor(latest_dvl_measurement_, dvl_gyro );
+    gtsam_graph_->addDvlFactor(latest_dvl_measurement_, dvl_gyro, covariance_dvl_ );
     new_dvl_measurement_ = false;
   }
 
   if (new_gps_measurement_) {
-    gtsam_graph_->addGpsFactor(latest_gps_point_);
+    gtsam_graph_->addGpsFactor(latest_gps_point_,position_variances);
     new_gps_measurement_ = false;
   }
 
@@ -832,8 +851,8 @@ void StateEstimator::KeyframeTimerCallback()
   // Publish the estimated pose.
   nav_msgs::msg::Odometry estimated_pose;
   estimated_pose.header.stamp = this->get_clock()->now();
-  estimated_pose.header.frame_id = "odom";
-  estimated_pose.child_frame_id = "base_link";
+  estimated_pose.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK; 
+  estimated_pose.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK; 
   estimated_pose.pose.pose.position.x = previous_state_.pose().translation().x();
   estimated_pose.pose.pose.position.y = previous_state_.pose().translation().y();
   estimated_pose.pose.pose.position.z = previous_state_.pose().translation().z();
@@ -847,7 +866,7 @@ void StateEstimator::KeyframeTimerCallback()
     previous_state_.velocity().y(),
     previous_state_.velocity().z()
   );
-  // we are not estimateing the angular vels but the bias so take the current angualr from stim
+  // we are not estimateing the angular vels but the bias so take the current angular from stim
   Eigen::Vector3d w_body(
     gyro.x()-current_imu_bias_.gyroscope().x(),
     gyro.y()-current_imu_bias_.gyroscope().y(),
@@ -868,8 +887,8 @@ void StateEstimator::KeyframeTimerCallback()
   // Broadcast estimated pose.
   geometry_msgs::msg::TransformStamped out_transform;
   out_transform.header.stamp = this->get_clock()->now();
-  out_transform.header.frame_id = "odom";
-  out_transform.child_frame_id = "estimated_pose";
+  out_transform.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK;
+  out_transform.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK;
   Point3 estimated_translation = previous_state_.pose().translation();
   Rot3 estimated_rotation = previous_state_.pose().rotation();
   out_transform.transform.translation.x = estimated_translation.x();
@@ -881,6 +900,9 @@ void StateEstimator::KeyframeTimerCallback()
   out_transform.transform.rotation.z = out_quat.z();
   out_transform.transform.rotation.w = out_quat.w();
   tf_broadcast_.sendTransform(out_transform);
+  // auto t2 = std::chrono::high_resolution_clock::now();
+  // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+  // RCLCPP_INFO(get_logger(), "State estimation took %ld ms", duration);
 
 
 

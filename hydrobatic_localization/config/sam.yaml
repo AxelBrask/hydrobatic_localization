@@ -1,7 +1,7 @@
 # sam.yaml
 imu:
   gravity:               9.818
-  accel_noise_sigma:     0.185    # m/s^2/√Hz
+  accel_noise_sigma:     0.00185    # m/s^2/√Hz
   gyro_noise_sigma:      0.0000120835   # rad/s/√Hz
   accel_bias_rw_sigma:   0.00137  # m/s^2
   gyro_bias_rw_sigma:    0.00005585 
