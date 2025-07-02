@@ -90,12 +90,12 @@ public:
     try {
 
       tf_est = tf_buffer_.lookupTransform(
-        "odom",           
-        "estimated_pose",
+        "sam/odom",           
+        "sam/base_link",
         rclcpp::Time(0),   
         tf2::durationFromSec(0.05));
     tf_gt = tf_buffer_.lookupTransform(
-        "odom",           
+        "sam/odom",           
         "sam_mocap2/base_link", 
         rclcpp::Time(0),
         tf2::durationFromSec(0.05));
@@ -107,8 +107,7 @@ public:
       return;
     }
 
-// 2) Extract the estimator’s quaternion EXACTLY as tf_est gives it:
-  //    (We will leave it untouched.)
+
   tf2::Quaternion q_est(
     tf_est.transform.rotation.x,
     tf_est.transform.rotation.y,
@@ -116,9 +115,7 @@ public:
     tf_est.transform.rotation.w );
   q_est.normalize();
 
-  // 3) Extract the raw GT quaternion (bodyGT → odom). This is still in ENU
-  //    (because TF has already applied your static NED→ENU), but in a body
-  //    frame whose axes are X→forward, Y→right, Z→down.
+
   tf2::Quaternion q_gt(
     tf_gt.transform.rotation.x,
     tf_gt.transform.rotation.y,
@@ -126,10 +123,9 @@ public:
     tf_gt.transform.rotation.w );
   q_gt.normalize();
 
-  // 4) Build the 180° about X “flip” quaternion.
-  //    This maps (forward,right,down) → (forward,left,up).
+
   tf2::Quaternion q_flip;
-  q_flip.setRPY(M_PI, 0.0, 0.0);  // (x=1, y=0, z=0, w=0) in (x,y,z,w) form
+  q_flip.setRPY(M_PI, 0.0, 0.0);  
   q_flip.normalize();
 
   tf2::Quaternion q_gt_corrected = q_gt * q_flip;
@@ -147,7 +143,7 @@ public:
   RCLCPP_INFO(this->get_logger(), "Logging poses at time: %.6f but timestamp is %.6f", t, stamp.seconds());
 
 
-  // 6) Write everything into the CSV, using q_gt_enu instead of q_ned:
+
   log_file_ << std::fixed << std::setprecision(6)
             << t << ", "
             // Estimated pose (already in ENU):
@@ -159,8 +155,7 @@ public:
             << tf_est.transform.rotation.y     << ", "
             << tf_est.transform.rotation.z     << ", "
             // GT pose, but *converted* to ENU:
-            << tf_gt.transform.translation.x   << ", "  // (position: NED→ENU positional conversion 
-                                                       // is already handled by lookupTransform into “odom”)
+            << tf_gt.transform.translation.x   << ", "  
             << tf_gt.transform.translation.y   << ", "
             << tf_gt.transform.translation.z   << ", "
             << q_gt_final.getW()           << ", "

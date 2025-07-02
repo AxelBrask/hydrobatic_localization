@@ -1,16 +1,16 @@
 # sam.yaml
 imu:
-  gravity:         9.81
+  gravity:               9.81
   accel_noise_sigma:     0.002    # m/s^2/√Hz
   gyro_noise_sigma:      0.0005   # rad/s/√Hz
   accel_bias_rw_sigma:   0.0001  # m/s^2
   gyro_bias_rw_sigma:    1e-6  
   integration_error_cov: 1e-4
   bias_acc_omega_init:   1e-5
-  sample_rate:           0.008
+  sample_rate:           0.02
 
 sbg:
-  gravity:         9.81
+  gravity:               9.81
   accel_noise_sigma:     0.002
   gyro_noise_sigma:      0.0005
   accel_bias_rw_sigma:   0.0001
@@ -36,3 +36,5 @@ noise_models:
   dvl_sigma:           [0.01,  0.01,  0.05]
   gps_sigma:           [0.5,   0.5,   0.5]
   barometer_sigma:     [0.001]
+
+water_density: 998.68

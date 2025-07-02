@@ -161,6 +161,8 @@ private:
   std::shared_ptr<message_filters::TimeSequencer<geometry_msgs::msg::TwistStamped>> sequencer_;
   std::string config_file_;
 
+  //Mutex for IMU , SBG and Keyframe callbacks
+  std::mutex imu_mutex_;
   // TF components
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
@@ -178,6 +180,8 @@ private:
   // IMU and SBG callback groups
   rclcpp::CallbackGroup::SharedPtr imu_callback_group_;
   rclcpp::CallbackGroup::SharedPtr sbg_callback_group_;
+  //Keyframe timer callback group
+  rclcpp::CallbackGroup::SharedPtr keyframe_callback_group_;
 
   // Instance of the GtsamGraph class
   std::string inference_strategy_;

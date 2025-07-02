@@ -8,10 +8,10 @@ In oder to run the localizer simply run the launch file, this will use the defau
 ```
 ros2 launch hydrobatic_localization state_estimator.launch 
 ```
-The launch file has 2 variables that can be specified, namely a boolean **use_motion_model**, which specifies if the ros node should subscribe to the contorl inputs and the gtsam graph should add the motion model factor to the graph. The deafault is set to **true**. The other parameter is **inference_strategy**, which specifies if the gtsam graph should use *fullsmoothing*, *ISAM2* or *fixedlagsmoothining*, the flags are **FullSmoothing**, **ISAM2** and **FixedLagSmoothing** respectivly, with fullsmoothing being the default.
+The launch file has 2 variables that can be specified, namely a boolean **use_motion_model**, which specifies if the ros node should subscribe to the contorl inputs and the gtsam graph should add the motion model factor to the graph. The deafault is set to **true**. The other parameter is **inference_strategy**, which specifies if the gtsam graph should use *fullsmoothing*, *ISAM2* or *fixedlagsmoothining*, the flags are **FullSmoothing**, **ISAM2** and **FixedLagSmoothing** respectivly, with fullsmoothing being the default. The **kf_interval_hz** parameters sets the rate at which keyframes optimizations are done, and **use_sensor_covariance** specifies if the covariances from the GPS and DVL drivers should be used instead of the ones in the config file. In order to specify a config file either use the name of the file 
 
 A example for running with the motion model turned off and with the fixedlagsmoother is:
 ```
-ros2 launch hydrobatic_localization state_estimator.launch use_motion_model:=false inference_strategy:=FixedLagSmoother
+ros2 launch hydrobatic_localization state_estimator.launch use_motion_model:=false inference_strategy:=FixedLagSmoother kf_interval_hz:=10 use_sensor_covariance:=true
 
 ```

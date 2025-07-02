@@ -22,10 +22,11 @@ def umeyama_alignment(P, Q, with_scale=False):
     """
     mu_P, mu_Q   = P.mean(0), Q.mean(0)
     P0,   Q0     = P - mu_P, Q - mu_Q
-    C            = P0.T @ Q0 / len(P)
+    C            = P0.T @ Q0
     U, sigma, Vt     = np.linalg.svd(C)
-    D            = np.eye(3);   D[-1, -1] = np.sign(np.linalg.det(U @ Vt))
-    R_opt        = U @ D @ Vt
+    D            = np.eye(3)
+    D[-1, -1] = np.sign(np.linalg.det(Vt.T @ U.T))
+    R_opt        = Vt.T @ D @ U.T
     if with_scale:
         var_P    = (P0**2).sum()/len(P)
         s_opt    = (sigma @ D).sum() / var_P
@@ -47,7 +48,7 @@ def quat_error_deg(q_est, q_gt):
     R_err = R.from_quat(q_est)*R.from_quat(q_gt).inv()
     return np.degrees(R_err.magnitude())          
 
-log_dir   = pathlib.Path("depth_yaw") 
+log_dir   = pathlib.Path("mocap_test1") 
 log_paths = sorted(log_dir.glob("*.csv")) 
 
 
@@ -148,7 +149,20 @@ plt.plot(runs[0]["gt_pos_x"], runs[0]["gt_pos_y"],
          c="black", lw=2, ls="-.", label="Ground truth")
 for run, g in big.groupby("run"):
     plt.plot(g["est_pos_x"], g["est_pos_y"],
-             lw=1.5, label=f"{run} – est")
+             lw=1.5, label=f"{run} ")
+
+plt.xlabel("X [m]"); plt.ylabel("Y [m]")
+plt.title("XY‑plane trajectory comparison")
+plt.legend(fontsize=8); plt.axis("equal"); plt.tight_layout(); plt.show()
+
+
+plt.figure(figsize=(8, 8))
+
+plt.plot(runs[0]["gt_pos_x"], runs[0]["gt_pos_y"],
+         c="black", lw=2, ls="-.", label="Ground truth")
+for run, g in big.groupby("run"):
+    plt.plot(g["est_al_x"], g["est_al_y"],
+             lw=1.5, label=f"{run} ")
 
 plt.xlabel("X [m]"); plt.ylabel("Y [m]")
 plt.title("XY‑plane trajectory comparison")

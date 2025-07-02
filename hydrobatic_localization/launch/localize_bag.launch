@@ -6,12 +6,12 @@
     <arg name="inference_strategy" default="FullSmoothing"/>
     <arg name = "kf_interval_hz" default = "10"/>
     <arg name = "init_from_ground_truth" default = "false"/>    
-    <arg name = "bag_file" default = "/home/axel/colcon_ws/may_22/gps_bag"/>
+    <arg name = "bag_file" default = "/home/axel/colcon_ws/may_22/rosbag2_2025_05_22-15_22_01"/>
     <arg name="robot_urdf" default="sam_auv.urdf"/>
     <arg name="use_sensor_covariance" default="false"/>
 
 
-    <executable cmd="ros2 bag play $(var bag_file) --clock" output="screen" />
+    <executable cmd="ros2 bag play $(var bag_file) --clock " output="screen" />
     <node pkg="hydrobatic_localization" exec="state_estimator" output="screen" namespace = "$(var robot_name)">
         <param name = "config_file" value = "$(var config_file)"/>
         <param name = "use_sim_time" value = "$(var use_sim_time)"/>
