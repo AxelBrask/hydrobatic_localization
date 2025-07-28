@@ -9,6 +9,7 @@
 #include <sam_msgs/msg/topics.hpp>
 #include <smarc_msgs/msg/topics.hpp>
 #include <sam_msgs/msg/links.hpp>
+#include <sam_msgs/msg/thruster_rp_ms.hpp>
 #include <smarc_msgs/msg/dvl.hpp>
 #include <smarc_msgs/msg/thruster_feedback.hpp>
 #include <smarc_msgs/msg/percent_stamped.hpp>
@@ -60,7 +61,8 @@ class StateEstimator : public rclcpp::Node {
 public:
   StateEstimator();
   // ~StateEstimator();
-
+std::shared_ptr<PreintegratedMotionModel> getMotionModel() const { return pmm;}
+  
 private:
   /**
    * @brief Callback function for the IMU sensor, sets the gyro field and integrates the measurements
@@ -104,8 +106,7 @@ private:
    * @brief Callback for adding thruster RPM command to the control sequence queue.
    * @param msg: thruster RPM command message
    */
-  void thruster_callback(const piml_msgs::msg::ThrusterRPMStamped::ConstSharedPtr t1,
-                          const piml_msgs::msg::ThrusterRPMStamped::ConstSharedPtr t2);
+  void thruster_callback(const sam_msgs::msg::ThrusterRPMs::SharedPtr msg);
 
   /**
    * @brief Callback for adding LCG/VBS command to the control sequence queue.
@@ -119,7 +120,19 @@ private:
   
   void gt_velocity_callback(const geometry_msgs::msg::TwistStamped::SharedPtr msg);
 
+  /**
+   * @brief Timer callback for publishing UTM coordinates.
+   */
   void utm_timer_publisher();
+  /**
+   * @brief Timer callback for starting publishing final GPS coordinates.
+   */
+  void start_final_gps_publishing();
+  /**
+   * @brief Publishes the final GPS coordinates.
+   */
+  void publish_final_gps();
+  
   // ROS publishers and subscribers
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr stim_imu_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sbg_imu_sub_;
@@ -128,23 +141,17 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
   rclcpp::Subscription<sam_msgs::msg::ThrusterAngles>::SharedPtr thruster_vector_sub_;
-  rclcpp::Subscription<sam_msgs::msg::ThrusterRPMs>::SharedPtr thruster_sub_;
+  rclcpp::Subscription<sam_msgs::msg::ThrusterRPMs>::SharedPtr thruster_rpms_sub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pose_pub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr motion_model_odom_;
-  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr depth_pub_;
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_sub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr gt_pressure_pub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr gt_pose_sub_;
-  rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr utm_publisher_;
   rclcpp::TimerBase::SharedPtr utm_timer_;
+  rclcpp::TimerBase::SharedPtr final_gps_timer_;
+  
 
-  // ROS Control subscribers with message filters
-  // Thruster-only sync
-  typedef message_filters::sync_policies::ApproximateTime<piml_msgs::msg::ThrusterRPMStamped,
-  piml_msgs::msg::ThrusterRPMStamped> ThrusterSyncPolicy;
-  typedef message_filters::Synchronizer<ThrusterSyncPolicy> ThrusterSync;
-  std::shared_ptr<ThrusterSync> thruster_sync_;
 
   // LCG/VBS-only sync
   typedef message_filters::sync_policies::ApproximateTime<smarc_msgs::msg::PercentStamped,
@@ -152,17 +159,14 @@ private:
   typedef message_filters::Synchronizer<LcgVbsSyncPolicy> LcgVbsSync;
   std::shared_ptr<LcgVbsSync> lcg_vbs_sync_;
 
-  // All four subscribers
-  message_filters::Subscriber<piml_msgs::msg::ThrusterRPMStamped> thruster1_sub_;
-  message_filters::Subscriber<piml_msgs::msg::ThrusterRPMStamped> thruster2_sub_;
+
   message_filters::Subscriber<smarc_msgs::msg::PercentStamped>     lcg_sub_;
   message_filters::Subscriber<smarc_msgs::msg::PercentStamped>     vbs_sub_;
-  std::shared_ptr<message_filters::Subscriber<geometry_msgs::msg::TwistStamped>> mf_sub_;
-  std::shared_ptr<message_filters::TimeSequencer<geometry_msgs::msg::TwistStamped>> sequencer_;
   std::string config_file_;
 
   //Mutex for IMU , SBG and Keyframe callbacks
   std::mutex imu_mutex_;
+  std::mutex control_list_mutex_;
   // TF components
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
@@ -195,6 +199,8 @@ private:
   double last_time_;
   int kf_interval_hz_;
   bool use_sensor_covariance_;
+  Rot3 sbg_orientation_;
+
 
   // For initialization
   std::vector<Rot3> estimated_rotations_;
@@ -221,6 +227,8 @@ private:
   double cov_threshold_ =  10.0;
   Vector3 position_variances;
   std_msgs::msg::String utm_zone_band_;
+  int gps_fix_count_{0};
+  int max_final_gps_fixes_{5};
 
   // Barometer
   double first_barometer_measurement_;
@@ -240,18 +248,13 @@ private:
 
   //Motion model for SAM
   std::shared_ptr<PreintegratedMotionModel> pmm;
+
   double dt_;
   bool using_motion_model_;
   double last_lcg_{0.0};
   double last_vbs_{0.0};
   double last_thr1_rpm_{0.0};
   double last_thr2_rpm_{0.0};
-
-  std::default_random_engine        noise_generator_;
-  std::normal_distribution<double>  noise_lin_x_;
-  std::normal_distribution<double>  noise_lin_y_;
-  std::normal_distribution<double>  noise_lin_z_;
-
 
   // Helper functions
   Rot3 averageRotations(const std::vector<Rot3>& rotations);

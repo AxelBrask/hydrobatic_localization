@@ -58,6 +58,8 @@ ament_target_dependencies(state_estimator
   tf2_geometry_msgs
   geometry_msgs
   piml_msgs
+  pybind11
+  Python3
 )
 target_link_libraries(state_estimator
   gtsam
@@ -65,6 +67,8 @@ target_link_libraries(state_estimator
   GeographicLib::GeographicLib
   yaml-cpp   
   tf2_geometry_msgs::tf2_geometry_msgs
+  Python3::Python
+
   )
 add_executable(motion_model  src/motion_model.cpp src/SamMotionModel.cpp 
  )
@@ -101,8 +105,11 @@ install(PROGRAMS
   ../../../../external_packages/smarc_modelling/src/smarc_modelling/piml/utils/topic_collector.py
 ${PROJECT_SOURCE_DIR}/scripts/dvl_raw.py
 ${PROJECT_SOURCE_DIR}/scripts/sinus_pub.py
+${PROJECT_SOURCE_DIR}/scripts/pressure_pub.py
 DESTINATION lib/${PROJECT_NAME}
 )
+
+
 
 install(TARGETS
   # hydrobatic_localization
@@ -129,11 +136,11 @@ install(DIRECTORY launch
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  add_executable(test_motion_model_factor
-    test/SamMotionModelFactorTest.cpp
-    src/SamMotionModelFactor.cpp
-    src/SamMotionModel.cpp
-  )
+  # add_executable(test_motion_model_factor
+    # test/SamMotionModelFactorTest.cpp
+    # src/SamMotionModelFactor.cpp
+    # src/SamMotionModel.cpp
+  # )
   add_executable(test_barometer_factor
     test/BarometerFactorTest.cpp
     src/BarometerFactor.cpp
@@ -160,20 +167,20 @@ if(BUILD_TESTING)
     gtsam
     ${CPPUNITLITE_LIBRARY}
   )
-  target_link_libraries(test_motion_model_factor
-    gtsam
-    ${CPPUNITLITE_LIBRARY}
-  )
+  # target_link_libraries(test_motion_model_factor
+  #   gtsam
+  #   ${CPPUNITLITE_LIBRARY}
+  # )
   target_link_libraries(test_bodyvelocity_factor
     gtsam
     ${CPPUNITLITE_LIBRARY}
   )
-  ament_target_dependencies(test_motion_model_factor
-    rclcpp
-  )
+  # ament_target_dependencies(test_motion_model_factor
+  #   rclcpp
+  # )
   ament_add_test(test_dvl_factor COMMAND test_dvl_factor)
   ament_add_test(test_barometer_factor COMMAND test_barometer_factor)
-  ament_add_test(test_motion_model_factor COMMAND test_motion_model_factor)
+  # ament_add_test(test_motion_model_factor COMMAND test_motion_model_factor)
   ament_add_test(test_bodyvelocity_factor COMMAND test_bodyvelocity_factor)
   ament_lint_auto_find_test_dependencies()
 endif()

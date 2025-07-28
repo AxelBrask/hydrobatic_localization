@@ -1,5 +1,6 @@
 #include "hydrobatic_localization/gtsam_graph.h"
 #include <cmath>
+#include <gtsam/constrained/NonlinearConstraint.h>
 
 GtsamGraph::GtsamGraph(InferenceStrategy strategy,const std::string& config_file) : current_index_(0),
             inference_strategy_(strategy),config_(Config::load(config_file)) {
@@ -17,7 +18,7 @@ GtsamGraph::GtsamGraph(InferenceStrategy strategy,const std::string& config_file
   {
     std::cout << "Using ISAM2" << std::endl;
     gtsam::ISAM2Params params;
-    params.relinearizeThreshold = 0.01;
+    params.relinearizeThreshold = 0.1;
     params.relinearizeSkip = 1;
     params.enablePartialRelinearizationCheck = true;
     params.print("ISAM2");
@@ -81,13 +82,13 @@ void GtsamGraph::initGraphAndState(const Rot3& initial_rot, const Point3& initia
   graph_.addPrior<Pose3>(X(0), prior_pose, pose_noise);
   graph_.addPrior<Vector3>(V(0), prior_velocity, velocity_noise);
   graph_.addPrior<imuBias::ConstantBias>(B(0), prior_imu_bias, bias_noise);
-  graph_.addPrior<imuBias::ConstantBias>(B2(0), prior_sbg_bias, bias_noise); 
+  // graph_.addPrior<imuBias::ConstantBias>(B2(0), prior_sbg_bias, bias_noise); 
 
   // Insert initial estimates
   initial_estimate_.insert(X(0), prior_pose);
   initial_estimate_.insert(V(0), prior_velocity);
   initial_estimate_.insert(B(0), prior_imu_bias);
-  initial_estimate_.insert(B2(0), prior_sbg_bias);
+  // initial_estimate_.insert(B2(0), prior_sbg_bias);
 
   // Save the initial state.
   previous_state_ = NavState(prior_pose, prior_velocity);
@@ -116,8 +117,8 @@ void GtsamGraph::addGtVelocityFactor(const Vector3& velocity) {
 void GtsamGraph::addGtPoseFactor(const Pose3& pose) {
   
   gtsam::Vector6 sigmas;
-  sigmas << 1e6, 1e6, 1e6,    
-            0.001, 0.001, 0.001; 
+  sigmas << 0.01, 0.01, 0.01,
+            0.001, 0.001, 0.001;
   auto pose_noise = noiseModel::Diagonal::Sigmas(sigmas);
   graph_.addPrior<Pose3>(X(current_index_+1), pose, pose_noise);
 }
@@ -165,7 +166,16 @@ NavState GtsamGraph::addSbgFactor()
   return sbg_prediction_state_;
 }
 
-
+void GtsamGraph::addSbgOrientationFactor(const Rot3& orientation) 
+{
+  gtsam::Vector6 sigmas;
+  sigmas << 0.0001, 0.0001, 0.1, // small rotation noise
+            10000, 10000, 10000; // no rotation noise, but large translation noise
+  auto orientation_noise = noiseModel::Diagonal::Sigmas(sigmas);  
+  //add prior on Pose3 but only constrain the rotation
+  graph_.addPrior<Pose3>(X(current_index_+1), Pose3(orientation, previous_state_.pose().translation()), orientation_noise);
+  // graph_.addPrior<Pose3>(X(current_index_+1), orientation, orientation_noise)
+}
 void GtsamGraph::addMotionModelFactor(const double start_time, const double end_time,
  const std::shared_ptr<const PreintegratedMotionModel>& pmm, const Vector3& gyro,NavState& new_state) 
 {
@@ -209,30 +219,14 @@ void GtsamGraph::addBarometerFactor(double depth_measurement)
 
 void GtsamGraph::addInitialEstimate()
 {
-  // const auto& imu_pose    = imu_prediction_state_.pose();
-  // const auto& motion_pose = motion_model_prediction_state_.pose();
 
-  // Eigen::Vector3d t;
-  // t.x() = imu_pose.translation().x();
-  // t.y() = motion_pose.translation().y();
-  // t.z() = motion_pose.translation().z();
-
-  // gtsam::Pose3 mixed_pose( imu_pose.rotation(), t );
-  // Eigen::Vector3d v;
-  // v.x() = imu_prediction_state_.v().x();
-  // v.y() = imu_prediction_state_.v().y();
-  // v.z() = imu_prediction_state_.v().z();
-  // NavState predicted_state(
-  //   mixed_pose,
-  //   gtsam::Vector3(v.x(), v.y(), v.z())
-  // );
   if(current_index_ == 0)
   {
     // If this is the first iteration, we need to insert the initial estimate
-    initial_estimate_.insert(X(current_index_+1), sbg_prediction_state_.pose());
-    initial_estimate_.insert(V(current_index_+1), sbg_prediction_state_.v());
+    initial_estimate_.insert(X(current_index_+1), initial_estimate_.at<Pose3>(X(0)));
+    initial_estimate_.insert(V(current_index_+1), initial_estimate_.at<Vector3>(V(0)));
     initial_estimate_.insert(B(current_index_+1), current_imu_bias_);
-    initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
+    // initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
   }
   else
   {
@@ -240,33 +234,31 @@ void GtsamGraph::addInitialEstimate()
   initial_estimate_.insert( X(current_index_+1),results_.at<Pose3>(X(current_index_)) );
   initial_estimate_.insert( V(current_index_+1), results_.at<Vector3>(V(current_index_)) );
   initial_estimate_.insert( B(current_index_+1), current_imu_bias_ );
-  initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
+  // initial_estimate_.insert(B2(current_index_+1), current_sbg_bias_);
   }
 }
 
 void GtsamGraph::optimize() {
   addInitialEstimate();
-  current_index_++;
+  
 
 
   if(inference_strategy_ ==InferenceStrategy::FullSmoothing)
   {
-    std::cout << "Full Smoothing optmizer" << std::endl;
-
     LevenbergMarquardtParams params;
     LevenbergMarquardtOptimizer optimizer(graph_, initial_estimate_, params);
     results_ = optimizer.optimize();
 
-    current_imu_bias_ = results_.at<imuBias::ConstantBias>(B(current_index_));
-    current_sbg_bias_ = results_.at<imuBias::ConstantBias>(B2(current_index_));
-    previous_state_ = NavState(results_.at<Pose3>(X(current_index_)), results_.at<Vector3>(V(current_index_)));
+    current_imu_bias_ = results_.at<imuBias::ConstantBias>(B(current_index_+1));
+    current_sbg_bias_ = results_.at<imuBias::ConstantBias>(B2(current_index_+1));
+    previous_state_ = NavState(results_.at<Pose3>(X(current_index_+1)), results_.at<Vector3>(V(current_index_+1)));
 
     imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
     sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
   }
   else if(inference_strategy_ == InferenceStrategy::FixedLagSmoothing || inference_strategy_ == InferenceStrategy::EKF)
   {
-      double t = static_cast<double>(current_index_);
+      double t = static_cast<double>(current_index_+1);
       for (auto const& kv : initial_estimate_) {
        smoother_timestamp_map_[kv.key] = t;
     }
@@ -279,13 +271,13 @@ void GtsamGraph::optimize() {
           ++it;
     }
        results_ = fixed_lag_smoother_->calculateEstimate();
-      current_imu_bias_ = results_.at<imuBias::ConstantBias>(B(current_index_));
-      current_sbg_bias_ = results_.at<imuBias::ConstantBias>(B2(current_index_));
-      previous_state_ = NavState(results_.at<Pose3>(X(current_index_)), results_.at<Vector3>(V(current_index_)));
+      current_imu_bias_ = results_.at<imuBias::ConstantBias>(B(current_index_+1));
+      // current_sbg_bias_ = results_.at<imuBias::ConstantBias>(B2(current_index_+1));
+      previous_state_ = NavState(results_.at<Pose3>(X(current_index_+1)), results_.at<Vector3>(V(current_index_+1)));
       graph_.resize(0);
       initial_estimate_.clear();
       imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
-      sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
+      // sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
   } 
 
 
@@ -295,16 +287,16 @@ void GtsamGraph::optimize() {
     isam_->update(graph_, initial_estimate_);
 
     results_ = isam_->calculateEstimate();
-    current_imu_bias_ = results_.at<imuBias::ConstantBias>(B(current_index_));
-    current_sbg_bias_ = results_.at<imuBias::ConstantBias>(B2(current_index_));
-    previous_state_ = NavState(results_.at<Pose3>(X(current_index_)), results_.at<Vector3>(V(current_index_)));
+    current_imu_bias_ = results_.at<imuBias::ConstantBias>(B(current_index_+1));
+    // current_sbg_bias_ = results_.at<imuBias::ConstantBias>(B2(current_index_+1));
+    previous_state_ = NavState(results_.at<Pose3>(X(current_index_+1)), results_.at<Vector3>(V(current_index_+1)));
     graph_.resize(0);
     initial_estimate_.clear();
     imu_preintegrated_->resetIntegrationAndSetBias(current_imu_bias_);
-    sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
+    // sbg_preintegrated_->resetIntegrationAndSetBias(current_sbg_bias_);
 
   }
-
+  current_index_++;
 }
 
 

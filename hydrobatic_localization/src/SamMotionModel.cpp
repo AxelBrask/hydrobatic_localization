@@ -5,6 +5,7 @@ SamMotionModelWrapper::SamMotionModelWrapper(double dt): dt_(dt)
   
 
     {
+        pybind11::gil_scoped_acquire acquire;
         py::module motion_model = py::module::import("smarc_modelling.vehicles.SAM_PIML");
         sam_object_ = motion_model.attr("SAM_PIML")();
         dynamics_func_ = sam_object_.attr("dynamics");
@@ -16,13 +17,15 @@ SamMotionModelWrapper::SamMotionModelWrapper(double dt): dt_(dt)
 Eigen::VectorXd SamMotionModelWrapper::Dynamics(const Eigen::VectorXd& x, const Eigen::VectorXd& u, double dt) const {
 
   try {
+    py::object x_dot_py;
+    pybind11::gil_scoped_acquire acquire;
+    {
     dt_func_(dt);
-    py::object x_dot_py = dynamics_func_(x, u);
+    x_dot_py = dynamics_func_(x, u);
+    }
     py::tuple x_dot_tuple = x_dot_py.cast<py::tuple>();
-
     return x_dot_tuple[0].cast<Eigen::VectorXd>();
   } catch (const py::error_already_set& e) {
-    std::cerr<<"[ERROR] Python exception: "<<e.what()<<std::endl;
     throw;
   }
 }
@@ -43,12 +46,9 @@ Eigen::VectorXd SamMotionModelWrapper::integrateState(const Eigen::VectorXd& x, 
         
         // Call the dynamics
         Eigen::VectorXd x_dot = Dynamics(new_state, control,dt_step);
-        // std::cout << "[INFO] x_dot: "<< x_dot << std::endl;
         // Euler integration
         new_state = new_state + dt_step * x_dot;
-        // std::cout << "[INFO] contorl for next dynamics: "<< new_state.tail(6).transpose() << std::endl;
 
-        // Normalize the quaternion
         Eigen::Vector4d q = new_state.segment(3, 4);
         q.normalize();
         new_state.segment(3, 4) = q;

@@ -1,52 +1,25 @@
 #include <hydrobatic_localization/SamMotionModelFactor.h>
-
+#include <iomanip> 
 namespace gtsam {
 
 
 
-NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& gyro,  const double start_time, const double end_time) {
-  
+NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& gyro,
+    const double start_time, const double end_time, const Eigen::MatrixXd& Sigma0) {
+
       // Convert the input NavState to a state vector using the provided gyro measurement.
       Eigen::VectorXd vectorState(19);
       vectorState.head(13) = stateToVector(state, gyro);     
       vectorState.tail(6) = prev_integrated_control_.u;  
-      //if vectorState is only zeros takt the first cotrl input
+      //if vectorState is only zeros takt the first control input
       if(vectorState.tail(6).isZero(6)){
-          vectorState.tail(6) = control_list_[0].u;
+          vectorState.tail(6) = prev_control_.u;
       }
-      //print control list
-      for (const auto& control : control_list_) {
-      }
-      // If there are no control inputs, return the input state.
       if (control_list_.empty()) {  
           return state;
       }
 
-      //print the control list
-      Eigen::VectorXd integratedState = vectorState;
-
-      double currentTime = start_time;
-      size_t idx = 0;  // Index to track current control
-
-      // Integrate from start_time to the first control input if there's a gap.
-      if (idx < control_list_.size() && control_list_[0].timestamp > currentTime) {
-          double dt = control_list_[0].timestamp - currentTime;
-          integratedState = sam_motion_model_->integrateState(integratedState, prev_control_.u, dt);
-          currentTime = control_list_[0].timestamp;
-      }
-
-      // Integrate over the control sequence until reaching end_time.
-      for (; idx < control_list_.size()-1 && control_list_[idx+1].timestamp <= end_time; idx++) {
-          double dt = control_list_[idx+1].timestamp - currentTime;
-          integratedState = sam_motion_model_->integrateState(integratedState, control_list_[idx].u, dt);
-          currentTime = control_list_[idx+1].timestamp;
-      }
-
-      // Integrate from the last control to end_time if necessary.
-      double dt = end_time - control_list_[idx].timestamp;
-      if (dt > 0) {
-          integratedState = sam_motion_model_->integrateState(integratedState, control_list_.back().u, dt);
-      }
+      Eigen::VectorXd integratedState = propagateStateVector(vectorState, start_time, end_time);
 
       // Convert the integrated state vector back to a NavState.
       NavState integratedNavState = vectorToState(integratedState, state);
@@ -59,6 +32,40 @@ NavState PreintegratedMotionModel::predict(const NavState& state,const Vector3& 
 
 
 }
+
+Eigen::VectorXd PreintegratedMotionModel::propagateStateVector(const Eigen::VectorXd& x,
+        double t0, double t1)
+        {
+        Eigen::VectorXd integratedState = x;
+
+        double currentTime = t0;
+        size_t idx = 0;  // Index to track current control
+
+        // Integrate from start_time to the first control input if there's a gap.
+        if (idx < control_list_.size() && control_list_[0].timestamp > currentTime) {
+            double dt = control_list_[0].timestamp - currentTime;
+            integratedState = sam_motion_model_->integrateState(integratedState, prev_control_.u, dt);
+            currentTime = control_list_[0].timestamp;
+        }
+
+        // Integrate over the control sequence until reaching end_time.
+        for (; idx < control_list_.size()-1 && control_list_[idx+1].timestamp <= t1; idx++) {
+            double dt = control_list_[idx+1].timestamp - currentTime;
+            integratedState = sam_motion_model_->integrateState(integratedState, control_list_[idx].u, dt);
+            currentTime = control_list_[idx+1].timestamp;
+        }
+
+        // Integrate from the last control to end_time if necessary.
+        double dt = t1 - control_list_[idx].timestamp;
+
+        if (dt > 0) {
+            integratedState = sam_motion_model_->integrateState(integratedState, control_list_.back().u, dt);
+        }
+        return integratedState;
+      }
+
+
+
 Eigen::VectorXd PreintegratedMotionModel::stateToVector(
     const gtsam::NavState& state,
     const gtsam::Vector3 gyro) const
@@ -175,71 +182,57 @@ Vector SamMotionModelFactor::evaluateError(
     gtsam::OptionalMatrixType H1, gtsam::OptionalMatrixType H2,
     gtsam::OptionalMatrixType H3, gtsam::OptionalMatrixType H4) const
 {
-  Vector error(9);
-  // 1) Compute the true “nominal” error:
-  Pose3 Ti = pose1;
-  Pose3 Tj = pose2;
-  Vector6 pose_err = Pose3::Logmap(PPM_.getDeltaPose()
-                    .inverse()
-                    .compose(Ti.inverse().compose(Tj)));
-  Vector3 vel_err  = velocity2 - (velocity1 + PPM_.getDeltaVel());
+  const double tol = 1e-9;
+  bool changed =
+    !pose1.equals(nom_Ti, tol) ||
+    !pose2.equals(nom_Tj, tol) ||
+    !velocity1.isApprox(nom_velocity1, tol) ||
+    !velocity2.isApprox(nom_velocity2, tol);
 
-
-  if(nominal) {
+  if (changed) {
+    // Recompute and cache everything exactly once
     nom_Ti        = pose1;
     nom_Tj        = pose2;
     nom_velocity1 = velocity1;
     nom_velocity2 = velocity2;
+
+    Vector6 pose_err = Pose3::Logmap(
+      PPM_.getDeltaPose().inverse()
+        .compose(pose1.inverse().compose(pose2)));
+    Vector3 vel_err  = velocity2 - (velocity1 + PPM_.getDeltaVel());
     nominal_error_.resize(9);
     nominal_error_ << pose_err, vel_err;
+
+    // Compute and cache the Jacobians once here
     stored_H1_ = gtsam::numericalDerivative11<Vector,Pose3>(
-      [this,pose2,velocity1,velocity2](const Pose3& p1){
+      [this,pose2,velocity1,velocity2](auto&& p1){
         return this->rawError(p1, pose2, velocity1, velocity2);
       }, pose1);
-
     stored_H2_ = gtsam::numericalDerivative11<Vector,Pose3>(
-      [this,pose1,velocity1,velocity2](const Pose3& p2){
+      [this,pose1,velocity1,velocity2](auto&& p2){
         return this->rawError(pose1, p2, velocity1, velocity2);
       }, pose2);
-
     stored_H3_ = gtsam::numericalDerivative11<Vector,Vector3>(
-      [this,pose1,pose2,velocity2](const Vector3& v1){
+      [this,pose1,pose2,velocity2](auto&& v1){
         return this->rawError(pose1, pose2, v1, velocity2);
       }, velocity1);
-
     stored_H4_.setZero(9,3);
     stored_H4_.block<3,3>(6,0) = Matrix3::Identity();
-
-    // flip the flag, and return the raw nominal error:
-    nominal = false;
-    
-    error << nominal_error_;
   }
-  else{
-  Vector err = nominal_error_
-             + stored_H1_ * Pose3::Logmap(nom_Ti.inverse().compose(Ti))
-             + stored_H2_ * Pose3::Logmap(nom_Tj.inverse().compose(Tj))
+
+  // Form the actual 1st‐order error approximation
+  Vector error = nominal_error_  
+             + stored_H1_ * Pose3::Logmap(nom_Ti.inverse().compose(pose1))
+             + stored_H2_ * Pose3::Logmap(nom_Tj.inverse().compose(pose2))
              + stored_H3_ * (velocity1 - nom_velocity1)
              + stored_H4_ * (velocity2 - nom_velocity2);
-  error << err;
-  }
-  if(H1) *H1  = gtsam::numericalDerivative11<Vector,Pose3>(
-      [this,pose2,velocity1,velocity2](const Pose3& p1){
-        return this->rawError(p1, pose2, velocity1, velocity2);
-      }, pose1);
 
+  // Only assign jacobians from the cached matrices
+  if (H1) *H1 = stored_H1_;
+  if (H2) *H2 = stored_H2_;
+  if (H3) *H3 = stored_H3_;
+  if (H4) *H4 = stored_H4_;
 
-    
-  if(H2) *H2 = gtsam::numericalDerivative11<Vector,Pose3>(
-      [this,pose1,velocity1,velocity2](const Pose3& p2){
-        return this->rawError(pose1, p2, velocity1, velocity2);
-      }, pose2);;
-  if(H3) *H3 = gtsam::numericalDerivative11<Vector,Vector3>(
-      [this,pose1,pose2,velocity2](const Vector3& v1){
-        return this->rawError(pose1, pose2, v1, velocity2);
-      }, velocity1);
-  if(H4) *H4 = stored_H4_;
-  
   return error;
 }
 

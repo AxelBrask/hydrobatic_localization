@@ -17,14 +17,23 @@
 #include <gtsam/base/OptionalJacobian.h>
 namespace gtsam {
 
+struct Prediction{
+  NavState state;
+  Eigen::MatrixXd cov;
+};
 
 class PreintegratedMotionModel
 {
   private:
+
+  Eigen::VectorXd propagateStateVector(const Eigen::VectorXd& x,
+                           double t0, double t1);
+
   // control sequence struct to store timestamp and control input
   struct controlSequence {
       double timestamp;
       Eigen::VectorXd u;};
+      
   //list of the motion model inputs to use for the dynamics
   std::vector<controlSequence> control_list_;
   std::shared_ptr<SamMotionModelWrapper> sam_motion_model_; // might be better to seperate this from the preintegrated class since now every factro will share ownership
@@ -36,6 +45,9 @@ class PreintegratedMotionModel
   double deltaT_;  
   controlSequence prev_integrated_control_;            
   NavState motion_model_prediction_state_; // The state predicted by the motion model  
+
+  // Covariance matrix for the noise propagation
+  gtsam::Matrix covar_;
 
   public:
   /**
@@ -65,7 +77,7 @@ class PreintegratedMotionModel
    * @param state: the current state
    * @return NavState: the predicted state
    */
-  NavState predict(const NavState& state,const Vector3& gyro,  const double start_time, const double end_time) ;
+  NavState predict(const NavState& state,const Vector3& gyro,  const double start_time, const double end_time, const Eigen::MatrixXd& Sigma0) ;
 
   /**
    * @brief Function to add control inputs to the control seqeuence

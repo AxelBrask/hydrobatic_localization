@@ -71,7 +71,7 @@ public:
    */
   NavState addSbgFactor();
 
-
+  void addSbgOrientationFactor(const Rot3& orientation);
   /**
    * @brief Add a motion model factor to the factor graph
    * @param start_time: the start time of the integration
@@ -104,6 +104,7 @@ public:
    * @brief Optimize the factor graph, increments the index and updates the state and bias of both the IMU and SBG.
    */
 
+  // Used for adding ground truth factors to the graph, e.g. for simulation or testing purposes or when DVL is bad.
   void addGtPriorFactor(const Pose3& pose, const Vector3& velocity);
   void addGtVelocityFactor(const Vector3& velocity);
   void addGtPoseFactor(const Pose3& pose);
@@ -144,16 +145,43 @@ public:
   return current_sbg_bias_ ;
   }
 
+  /**
+   * @brief Get the stim300 IMU rate
+   * @return the current IMU rate in seconds
+   */
   double getImuRate() const {
     return config_.imu.sample_rate;
   }
 
+  /**
+   * @brief Get the sbg IMU rate
+   * @return the current SBG rate in seconds
+   */
   double getSbgRate() const {
     return config_.sbg.sample_rate;
   }
 
+  /**
+   * @brief Get the water density
+   * @return the current water density in kg/m^3
+   */
   double getWaterDensity() const {
     return config_.water_density;
+  }
+
+  /**
+   * @brief Get the imu preintegrated measurements
+   * @return the imu preintegrated measurements as a shared pointer to PreintegratedCombinedMeasurements
+   */
+  std::shared_ptr<PreintegratedCombinedMeasurements> getImuPreintegrated() const {
+    return imu_preintegrated_;
+  }
+  /**
+   * @brief Get the SBG preintegrated measurements
+   * @return the SBG preintegrated measurements as a shared pointer to PreintegratedCombinedMeasurements
+   */
+  std::shared_ptr<PreintegratedCombinedMeasurements> getSbgPreintegrated() const {
+    return sbg_preintegrated_;
   }
   /**
    * @brief Get the current index of the factor graph
@@ -163,6 +191,42 @@ public:
   return current_index_;
   }
 
+  /**
+   * @brief Get the current covariance matrix
+   * @param idx: the index of the state
+   * @return the current covariance matrix as an Eigen::MatrixXd
+   */
+  Eigen::MatrixXd getCurrentCovariance(std::size_t idx) const
+  {
+  constexpr int kPoseDim = 6, kVelDim = 3, kStateDim = kPoseDim + kVelDim;
+  if (idx == 0) {
+    Eigen::MatrixXd P = Eigen::MatrixXd::Zero(kStateDim, kStateDim);
+    P.diagonal().head(kPoseDim) = config_.noise_models.prior.pose_sigma.array().square();
+    P.diagonal().tail(kVelDim)  = config_.noise_models.prior.velocity_sigma.array().square();
+    return P;
+  }
+  const auto kX = X(idx);
+  const auto kV = V(idx);
+
+  Eigen::MatrixXd P = Eigen::MatrixXd::Zero(kStateDim, kStateDim);
+  try {
+    if (inference_strategy_== InferenceStrategy::FixedLagSmoothing || inference_strategy_ == InferenceStrategy::EKF) {
+    const Eigen::MatrixXd Ppose = fixed_lag_smoother_->marginalCovariance(kX); 
+    const Eigen::MatrixXd Pvel  = fixed_lag_smoother_->marginalCovariance(kV); 
+    P.diagonal().head(kPoseDim) = Ppose.diagonal();
+    P.diagonal().tail(kVelDim)  = Pvel.diagonal();
+    }
+    else if (inference_strategy_ == InferenceStrategy::ISAM2) {
+    const Eigen::MatrixXd Ppose = isam_->marginalCovariance(kX); 
+    const Eigen::MatrixXd Pvel  = isam_->marginalCovariance(kV); 
+    P.diagonal().head(kPoseDim) = Ppose.diagonal();
+    P.diagonal().tail(kVelDim)  = Pvel.diagonal();
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "[GtsamGraph] marginalCovariance threw: " << e.what() << "\n";
+  }
+  return P;
+  }
   /**
    * @brief Integrate the IMU measurements to the preintegrator
    * @param acc: the acceleration measurement
@@ -186,8 +250,17 @@ public:
       sbg_preintegrated_->deltaTij()
     };
   }
+  /**
+   * @brief Increment the current index
+   */
   void incrementIndex() { current_index_++; }
 
+/**
+ * @brief Make the parameters for the preintegrated measurements
+ * @param n: the noise configuration
+ * @param sensor_offset: the sensor offset
+ * @return a shared pointer to the parameters
+ */
   std::shared_ptr<PreintegratedCombinedMeasurements::Params>
   makeParams(const NoiseConfig& n, const Vector3& sensor_offset);
 

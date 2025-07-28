@@ -30,9 +30,18 @@ public:
         // sync_ = std::make_shared<message_filters::Synchronizer<sync_policy_>>(sync_policy_(10), gt_sub_, est_sub_);
         // sync_->setMaxIntervalDuration(rclcpp::Duration::from_seconds(0.08));
         // sync_->registerCallback(std::bind(&loggerNode::callback, this, std::placeholders::_1, std::placeholders::_2));
-        // Timer for periodic logging (50 Hz)
+        // Timer for periodic logging (50 Hz)'
+        while (!tf_buffer_.canTransform(
+           "sam/odom_gtsam",
+           "sam/base_link_gtsam",
+           tf2::TimePointZero)) {
+          rclcpp::sleep_for(std::chrono::milliseconds(10));
+        }
+        tf_buffer_.canTransform("sam/odom_gtsam", "sam_mocap/base_link", tf2::TimePointZero, tf2::durationFromSec(1.0));
+        tf_buffer_.canTransform("sam/odom_gtsam", "sam/base_link_gtsam", tf2::TimePointZero, tf2::durationFromSec(1.0));
         timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(100), std::bind(&loggerNode::logPoses, this));
+        std::chrono::milliseconds(50), std::bind(&loggerNode::logPoses, this));
+        RCLCPP_INFO(this->get_logger(), "Logger node initialized, logging to %s", (folder_ + "/state_estimator_log.csv").c_str());
 
     }
 
@@ -90,15 +99,15 @@ public:
     try {
 
       tf_est = tf_buffer_.lookupTransform(
-        "sam/odom",           
-        "sam/base_link",
+        "sam/odom_gtsam",           
+        "sam/base_link_gtsam",
         rclcpp::Time(0),   
-        tf2::durationFromSec(0.05));
+        tf2::durationFromSec(0.01));
     tf_gt = tf_buffer_.lookupTransform(
-        "sam/odom",           
-        "sam_mocap2/base_link", 
-        rclcpp::Time(0),
-        tf2::durationFromSec(0.05));
+        "sam/odom_gtsam",           
+        "sam_mocap/base_link", 
+        tf_est.header.stamp,
+        tf2::durationFromSec(0.01));
         // tf2::doTransform(tf_gt, tf_gt, utm_map_gt_);
 
     }
@@ -138,9 +147,7 @@ public:
 
   tf2::Quaternion q_gt_final = q_gt_corrected;
   q_gt_final.normalize();
-  // 6) Fetch a high-precision timestamp (sim time or wall-time, as before).
-  double t = this->now().seconds();
-  RCLCPP_INFO(this->get_logger(), "Logging poses at time: %.6f but timestamp is %.6f", t, stamp.seconds());
+  const double t = tf_est.header.stamp.sec + tf_est.header.stamp.nanosec * 1e-9;
 
 
 
