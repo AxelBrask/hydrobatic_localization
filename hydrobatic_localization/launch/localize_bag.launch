@@ -22,15 +22,6 @@
         <param name = "use_sensor_covariance" value = "$(var use_sensor_covariance)"/>
     </node>
 
-    <!-- <node pkg="hydrobatic_localization" exec="dvl_raw.py" output="screen" namespace = "$(var robot_name)">
-        <param name = "use_sim_time" value = "$(var use_sim_time)"/>
-    </node> -->
-
-    <node pkg="hydrobatic_localization" exec="topic_collector.py" output="screen" namespace = "$(var robot_name)">
-        <param name = "use_sim_time" value = "$(var use_sim_time)"/>
-        <param name = "robot_name" value = "$(var robot_name)"/>
-    </node>
-
     <node  pkg="hydrobatic_localization" exec="pressure_pub.py" output="screen" namespace="$(var robot_name)">
         <param name = "use_sim_time" value = "$(var use_sim_time)"/>
         <param name = "robot_name" value = "$(var robot_name)"/>

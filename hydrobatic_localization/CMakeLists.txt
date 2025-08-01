@@ -102,8 +102,6 @@ ament_target_dependencies(logger
 # Insatll the executablese, headers and launch files
 
 install(PROGRAMS
-  ../../../../external_packages/smarc_modelling/src/smarc_modelling/piml/utils/topic_collector.py
-${PROJECT_SOURCE_DIR}/scripts/dvl_raw.py
 ${PROJECT_SOURCE_DIR}/scripts/sinus_pub.py
 ${PROJECT_SOURCE_DIR}/scripts/pressure_pub.py
 DESTINATION lib/${PROJECT_NAME}

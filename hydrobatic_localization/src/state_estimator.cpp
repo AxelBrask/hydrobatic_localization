@@ -133,9 +133,6 @@ StateEstimator::StateEstimator()
   tf_static_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);  
 
   // Publishers
-  motion_model_odom_ = this->create_publisher<nav_msgs::msg::Odometry>(
-      "motion_model_odom", 10);
-
   pose_pub_ = this->create_publisher<nav_msgs::msg::Odometry>(
       dead_reckoning_msgs::msg::Topics::DR_ODOM_TOPIC+"_gtsam", 10);
       
@@ -146,15 +143,16 @@ StateEstimator::StateEstimator()
       std::chrono::milliseconds(1000 / kf_interval_hz_),
       std::bind(&StateEstimator::KeyframeTimerCallback, this),
       keyframe_callback_group_);
+
   RCLCPP_INFO(this->get_logger(), "Keyframe timer set to %d Hz", kf_interval_hz_);
 
   // Initialize the GtsamGraph with the chosen inference strategy
   gtsam_graph_ = std::make_unique<GtsamGraph>(inference_strategy, config_file);
 
+  // Initialize the PreintegratedMotionModel
   pmm = std::make_shared<PreintegratedMotionModel>(dt_);
-  RCLCPP_INFO(this->get_logger(), "Exposed pmm to Python as preint_model.model");
 
-
+  // utm timer for publishing UTM zone band
   utm_timer_ = this->create_wall_timer(
       std::chrono::milliseconds(1000), std::bind(&StateEstimator::utm_timer_publisher, this));
 
@@ -185,11 +183,10 @@ void StateEstimator::start_final_gps_publishing()
 void StateEstimator::publish_final_gps()
 {
 
-
   geometry_msgs::msg::TransformStamped tf;
   try {
     tf = tf_buffer_.lookupTransform(
-      "sam/odom_gtsam",
+      name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+"_gtsam",
       "sam_mocap/gps_link",
       tf2::TimePointZero,
       tf2::durationFromSec(0.1));
@@ -207,7 +204,10 @@ void StateEstimator::publish_final_gps()
   RCLCPP_INFO(this->get_logger(),
     "Injected final MoCap GPS factor at (%.3f, %.3f, %.3f)",
     t.x, t.y, t.z);
+    
 }
+
+
 void StateEstimator::utm_timer_publisher()
 {
   if (!map_initialized_) {
@@ -216,6 +216,8 @@ void StateEstimator::utm_timer_publisher()
   }
   utm_publisher_->publish(utm_zone_band_);
 }
+
+
 
 void StateEstimator::gt_velocity_callback(const geometry_msgs::msg::TwistStamped::SharedPtr msg)
 {
@@ -245,39 +247,11 @@ void StateEstimator::gt_velocity_callback(const geometry_msgs::msg::TwistStamped
     vel_mocap.velocity.linear.y,
     vel_mocap.velocity.linear.z
   );
+
   tf2::Vector3 v_odom = R_odom_from_mocap * v_base;
 
-  tf2::Vector3 w_base(
-    vel_mocap.velocity.angular.x,
-    vel_mocap.velocity.angular.y,
-    vel_mocap.velocity.angular.z
-  );
-  tf2::Vector3 w_odom = R_odom_from_mocap * w_base;
-
-
-
-  geometry_msgs::msg::TwistStamped vel_odom;
-  vel_odom.header.stamp = vel_mocap.header.stamp;
-  vel_odom.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+"_gtsam"; // Odom frame in ENU
-  vel_odom.twist.linear.x  = v_odom.x();
-  vel_odom.twist.linear.y  = v_odom.y();
-  vel_odom.twist.linear.z  = v_odom.z();
-  vel_odom.twist.angular.x = w_odom.x();
-  vel_odom.twist.angular.y = w_odom.y();
-  vel_odom.twist.angular.z = w_odom.z();
   gt_velocity_ = gtsam::Vector3(v_odom.x(), -v_odom.y(), -v_odom.z());
 
-  nav_msgs::msg::Odometry odom_msg;
-  odom_msg.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+"_gtsam";
-  odom_msg.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK +"_gtsam";
-
-  odom_msg.twist.twist.linear.x = v_odom.x();
-  odom_msg.twist.twist.linear.y = v_odom.y();
-  odom_msg.twist.twist.linear.z = v_odom.z();
-  odom_msg.twist.twist.angular.x = w_odom.x();
-  odom_msg.twist.twist.angular.y = w_odom.y();
-  odom_msg.twist.twist.angular.z = w_odom.z();
-  motion_model_odom_->publish(odom_msg);
 }
 
 
@@ -897,31 +871,12 @@ void StateEstimator::KeyframeTimerCallback()
     NavState new_state;
     {
       std::lock_guard<std::mutex> lk(control_list_mutex_);
+      
       new_state = pmm->predict(state, gyro, last_time_,
               current_time,gtsam_graph_->getCurrentCovariance(gtsam_graph_->getCurrentIndex()));
       gtsam_graph_->addMotionModelFactor(last_time_,current_time,pmm,gyro,new_state);
     }
-
-    RCLCPP_INFO(this->get_logger(), "Motion model factor added");
     last_time_ = current_time;
-
-    nav_msgs::msg::Odometry motion_model_odom;
-    motion_model_odom.header.stamp = this->get_clock()->now();
-    motion_model_odom.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK +"_gtsam";
-    motion_model_odom.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK +"_gtsam";
-
-    motion_model_odom.pose.pose.position.x = new_state.pose().translation().x();
-    motion_model_odom.pose.pose.position.y = new_state.pose().translation().y();
-    motion_model_odom.pose.pose.position.z = new_state.pose().translation().z();
-    Quaternion quat = new_state.pose().rotation().toQuaternion();
-    motion_model_odom.pose.pose.orientation.x = quat.x();
-    motion_model_odom.pose.pose.orientation.y = quat.y();
-    motion_model_odom.pose.pose.orientation.z = quat.z();
-    motion_model_odom.pose.pose.orientation.w = quat.w();
-    motion_model_odom.twist.twist.linear.x = new_state.velocity().x();
-    motion_model_odom.twist.twist.linear.y = new_state.velocity().y();
-    motion_model_odom.twist.twist.linear.z = new_state.velocity().z();                            
-    motion_model_odom_->publish(motion_model_odom);
 
   }
   
