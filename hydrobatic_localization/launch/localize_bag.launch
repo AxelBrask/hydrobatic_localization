@@ -1,9 +1,9 @@
 <launch>
     <arg name="config_file" default="sam.yaml"/>
-    <arg name ="robot_name" default ="sam_auv_v1"/>
-    <arg name="use_motion_model" default="true"/>
+    <arg name ="robot_name" default ="sam"/>
+    <arg name="use_motion_model" default="false"/>
     <arg name="use_sim_time" default="true"/>
-    <arg name="inference_strategy" default="FullSmoothing"/>
+    <arg name="inference_strategy" default="FixedLagSmoothing"/>
     <arg name = "kf_interval_hz" default = "10"/>
     <arg name = "init_from_ground_truth" default = "false"/>    
     <arg name = "bag_file" default = "/home/axel/colcon_ws/rosbag2_2025_07_03-14_52_42"/>
