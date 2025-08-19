@@ -10,7 +10,7 @@ import tf2_ros
 
 class MocapPressurePub(Node):
     def __init__(self):
-        super().__init__('dual_sine_generator')
+        super().__init__('mocap_pressure_pub_node')
 
         self.pressure_pub = self.create_publisher(FluidPressure, "gt_pressure", 10)
         self.tf_buffer = tf2_ros.Buffer()

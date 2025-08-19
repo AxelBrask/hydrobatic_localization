@@ -181,6 +181,7 @@ private:
   gtsam::Pose3 gt_pose_;
   gtsam::Velocity3 gt_velocity_;
   int gt_counter_ = 0;
+  std::string frame_suffix_;
   // IMU and SBG callback groups
   rclcpp::CallbackGroup::SharedPtr imu_callback_group_;
   rclcpp::CallbackGroup::SharedPtr sbg_callback_group_;

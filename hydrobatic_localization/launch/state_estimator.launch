@@ -7,7 +7,8 @@
     <arg name="use_sensor_covariance" default="false"/>
     <arg name="init_from_ground_truth" default="false"/>
     <arg name="robot_urdf" default="sam_auv.urdf"/>
-        <arg name = "kf_interval_hz" default = "10"/>
+    <arg name = "kf_interval_hz" default = "10"/>
+    <arg name = "frame_suffix" default=""/>
 
     <node pkg="hydrobatic_localization" exec="state_estimator" output="screen" namespace = "$(var robot_name)">
         <param name = "config_file" value = "$(var config_file)"/>
@@ -17,6 +18,7 @@
         <param name = "init_from_ground_truth" value = "$(var init_from_ground_truth)"/>
         <param name = "use_sensor_covariance" value = "$(var use_sensor_covariance)"/>
         <param name = "kf_interval_hz" value = '$(var kf_interval_hz)'/>
+        <param name = "frame_suffix" value = "$(var frame_suffix)"/>
 
     </node>
 

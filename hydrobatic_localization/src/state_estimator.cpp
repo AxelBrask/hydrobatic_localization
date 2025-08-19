@@ -29,6 +29,8 @@ StateEstimator::StateEstimator()
   this->declare_parameter<bool>("use_sensor_covariance", false);
   this->get_parameter("use_sensor_covariance", use_sensor_covariance_);
 
+  this->declare_parameter<std::string>("frame_suffix", "");
+  this->get_parameter("frame_suffix", frame_suffix_);
 
 
   std::string config_file;
@@ -134,7 +136,7 @@ StateEstimator::StateEstimator()
 
   // Publishers
   pose_pub_ = this->create_publisher<nav_msgs::msg::Odometry>(
-      dead_reckoning_msgs::msg::Topics::DR_ODOM_TOPIC+"_gtsam", 10);
+      dead_reckoning_msgs::msg::Topics::DR_ODOM_TOPIC+(frame_suffix_.empty() ? "" : "_" + frame_suffix_), 10);
       
   utm_publisher_ = this->create_publisher<std_msgs::msg::String>(
       sam_msgs::msg::Topics::UTM_ZONE_BAND, 10);
@@ -186,7 +188,7 @@ void StateEstimator::publish_final_gps()
   geometry_msgs::msg::TransformStamped tf;
   try {
     tf = tf_buffer_.lookupTransform(
-      name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+"_gtsam",
+      name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+(frame_suffix_.empty() ? "" : "_" + frame_suffix_),
       "sam_mocap/gps_link",
       tf2::TimePointZero,
       tf2::durationFromSec(0.1));
@@ -290,7 +292,7 @@ void StateEstimator::gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
       return;                                 
       }
       map_to_blgt.header.frame_id = "map";
-      map_to_blgt.child_frame_id  = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK +"_gtsam";
+      map_to_blgt.child_frame_id  = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK +(frame_suffix_.empty() ? "" : "_" + frame_suffix_);
   // tf2::Quaternion q = tf2::Quaternion(map_to_blgt.transform.rotation.x,
   //                                    map_to_blgt.transform.rotation.y,
   //                                    map_to_blgt.transform.rotation.z,
@@ -329,7 +331,7 @@ void StateEstimator::gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
   geometry_msgs::msg::TransformStamped body_to_odom_init;
   try {
     body_to_odom_init = tf_buffer_.lookupTransform(
-      name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+"_gtsam",                     
+      name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+(frame_suffix_.empty() ? "" : "_" + frame_suffix_),                     
       vel_in.header.frame_id, 
       rclcpp::Time(0),            
       tf2::durationFromSec(0.1)   
@@ -354,7 +356,7 @@ void StateEstimator::gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
       tf2::Vector3 w_odom_init = R_body_to_odom_init * w_body_init;
 
       init_vel_odom_.header.stamp    = vel_in.header.stamp;
-      init_vel_odom_.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+"_gtsam";
+      init_vel_odom_.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+(frame_suffix_.empty() ? "" : "_" + frame_suffix_);
       init_vel_odom_.velocity.linear.x  = v_odom_init.x();
       init_vel_odom_.velocity.linear.y  = v_odom_init.y();
       init_vel_odom_.velocity.linear.z  = v_odom_init.z();
@@ -373,7 +375,7 @@ void StateEstimator::gt_odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
     geometry_msgs::msg::TransformStamped body_to_odom;
     try {
       body_to_odom = tf_buffer_.lookupTransform(
-        name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+"_gtsam",                   
+        name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+(frame_suffix_.empty() ? "" : "_" + frame_suffix_),                   
         msg->child_frame_id,          
         tf2::TimePointZero,           
         tf2::durationFromSec(0.1)     
@@ -755,7 +757,7 @@ void StateEstimator::KeyframeTimerCallback()
 
         try {
           odom_transform = tf_buffer_.lookupTransform(
-          name_space_+"/"+sam_msgs::msg::Links::ODOM_LINK+"_gtsam", "sam_mocap/base_link",
+          name_space_+"/"+sam_msgs::msg::Links::ODOM_LINK+(frame_suffix_.empty() ? "" : "_" + frame_suffix_), "sam_mocap/base_link",
           tf2::TimePointZero, std::chrono::microseconds(10));
         } 
         catch (tf2::TransformException &ex) 
@@ -780,8 +782,8 @@ void StateEstimator::KeyframeTimerCallback()
 
       geometry_msgs::msg::TransformStamped init_transform;
       init_transform.header.stamp = this->get_clock()->now();
-      init_transform.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK +"_gtsam"; 
-      init_transform.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK +"_gtsam"; 
+      init_transform.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK +(frame_suffix_.empty() ? "" : "_" + frame_suffix_); 
+      init_transform.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK +(frame_suffix_.empty() ? "" : "_" + frame_suffix_); 
       init_transform.transform.translation.x = initial_position.x();
       init_transform.transform.translation.y = initial_position.y();
       init_transform.transform.translation.z = initial_position.z();
@@ -812,7 +814,7 @@ void StateEstimator::KeyframeTimerCallback()
         geometry_msgs::msg::TransformStamped odom_transform;
         odom_transform.header.stamp = this->get_clock()->now();
         odom_transform.header.frame_id = "map";
-        odom_transform.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK +"_gtsam";
+        odom_transform.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK +(frame_suffix_.empty() ? "" : "_" + frame_suffix_);
         // translate the map -> odom with -base_to_gps_offset in x and y
         odom_transform.transform.translation.x = -off_map.x(); // x and y were swapped from the sim
         odom_transform.transform.translation.y = -off_map.y();
@@ -932,8 +934,8 @@ void StateEstimator::KeyframeTimerCallback()
   // Publish the estimated pose.
   nav_msgs::msg::Odometry estimated_pose;
   estimated_pose.header.stamp = this->get_clock()->now();
-  estimated_pose.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK +"_gtsam"; 
-  estimated_pose.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK +"_gtsam"; 
+  estimated_pose.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK +(frame_suffix_.empty() ? "" : "_" + frame_suffix_); 
+  estimated_pose.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK +(frame_suffix_.empty() ? "" : "_" + frame_suffix_); 
   estimated_pose.pose.pose.position.x = previous_state_.pose().translation().x();
   estimated_pose.pose.pose.position.y = previous_state_.pose().translation().y();
   estimated_pose.pose.pose.position.z = previous_state_.pose().translation().z();
@@ -968,8 +970,8 @@ void StateEstimator::KeyframeTimerCallback()
   // Broadcast estimated pose.
   geometry_msgs::msg::TransformStamped out_transform;
   out_transform.header.stamp = this->get_clock()->now();
-  out_transform.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK +"_gtsam";
-  out_transform.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK +"_gtsam";
+  out_transform.header.frame_id = name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK +(frame_suffix_.empty() ? "" : "_" + frame_suffix_);
+  out_transform.child_frame_id = name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK + (frame_suffix_.empty() ? "" : "_" + frame_suffix_);
   Point3 estimated_translation = previous_state_.pose().translation();
   Rot3 estimated_rotation = previous_state_.pose().rotation();
   out_transform.transform.translation.x = estimated_translation.x();

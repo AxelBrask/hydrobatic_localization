@@ -1,9 +1,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <iomanip>
-// #include <message_filters/subscriber.h>
-// #include <message_filters/synchronizer.h>
-// #include <message_filters/sync_policies/approximate_time.h>
 #include <filesystem>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -11,34 +8,45 @@
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <iostream>
 #include <fstream>
+#include <sam_msgs/msg/links.hpp>
 
 class loggerNode : public rclcpp::Node {
 
 public:
     loggerNode() : Node("logger_node"), tf_buffer_(this->get_clock()),
     tf_listener_(tf_buffer_) {
-            geometry_msgs::msg::TransformStamped odom_to_odom_gt;
+
+        geometry_msgs::msg::TransformStamped odom_to_odom_gt;
         this->declare_parameter<std::string>("folder", "logs");
         this->get_parameter("folder", folder_);
+        this->declare_parameter<std::string>("frame_suffix","");
+        this->get_parameter("frame_suffix", frame_suffix_);
         std::filesystem::create_directories(folder_);
-        // get_static_utm_map_gt();
+          name_space_ = this->get_namespace();
+        //remove leading slashes from namespace
+        if (name_space_.front() == '/') {
+          name_space_.erase(0, 1);
+        }
+
+
+        
         log_file_.open(folder_ + "/state_estimator_log.csv");
         log_file_ << "time, est_pos_x, est_pos_y, est_pos_z, est_quat_w, est_quat_x, est_quat_y, est_quat_z, "
                   << "gt_pos_x, gt_pos_y, gt_pos_z, gt_quat_w, gt_quat_x, gt_quat_y, gt_quat_z\n";
-        // gt_sub_.subscribe(this, "core/odom_gt");
-        // est_sub_.subscribe(this, "estimated_pose");
-        // sync_ = std::make_shared<message_filters::Synchronizer<sync_policy_>>(sync_policy_(10), gt_sub_, est_sub_);
-        // sync_->setMaxIntervalDuration(rclcpp::Duration::from_seconds(0.08));
-        // sync_->registerCallback(std::bind(&loggerNode::callback, this, std::placeholders::_1, std::placeholders::_2));
-        // Timer for periodic logging (50 Hz)'
+
         while (!tf_buffer_.canTransform(
-           "sam/odom_gtsam",
-           "sam/base_link_gtsam",
+           name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+ (frame_suffix_.empty() ? "" : "_" + frame_suffix_),
+           name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK + (frame_suffix_.empty() ? "" : "_" + frame_suffix_),
            tf2::TimePointZero)) {
           rclcpp::sleep_for(std::chrono::milliseconds(10));
         }
-        tf_buffer_.canTransform("sam/odom_gtsam", "sam_mocap/base_link", tf2::TimePointZero, tf2::durationFromSec(1.0));
-        tf_buffer_.canTransform("sam/odom_gtsam", "sam/base_link_gtsam", tf2::TimePointZero, tf2::durationFromSec(1.0));
+
+        tf_buffer_.canTransform(name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+ (frame_suffix_.empty() ? "" : "_" + frame_suffix_),
+         "sam_mocap/base_link", tf2::TimePointZero, tf2::durationFromSec(1.0));
+
+        tf_buffer_.canTransform(name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK + (frame_suffix_.empty() ? "" : "_" + frame_suffix_),
+           name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK + (frame_suffix_.empty() ? "" : "_" + frame_suffix_), tf2::TimePointZero,
+            tf2::durationFromSec(1.0));
         timer_ = this->create_wall_timer(
         std::chrono::milliseconds(50), std::bind(&loggerNode::logPoses, this));
         RCLCPP_INFO(this->get_logger(), "Logger node initialized, logging to %s", (folder_ + "/state_estimator_log.csv").c_str());
@@ -49,62 +57,22 @@ public:
         log_file_.close();
         RCLCPP_INFO(this->get_logger(), "Logger node shutting down");
     }
-    void get_static_utm_map_gt()
-  {
-    try {
-      utm_map_gt_ = tf_buffer_.lookupTransform(
-        "map",                     
-        "sam_auv_v1/odom_gt", 
-        rclcpp::Time(0),           
-        tf2::durationFromSec(0.1)  
-      );
-      have_utm_map_gt_ = true;
-    }
-    catch (tf2::TransformException &ex) {
-      RCLCPP_WARN(this->get_logger(),
-        "Failed to cache UTM→map_gt: %s", ex.what());
-        get_static_utm_map_gt();
-    }
-  }
+    
 
-    // void callback(const nav_msgs::msg::Odometry::ConstSharedPtr gt_msg,
-    //               const nav_msgs::msg::Odometry::ConstSharedPtr est_msg) {
-    //     // Log the messages
-    //     RCLCPP_INFO(this->get_logger(), "Ground Truth: [%f, %f, %f]", 
-    //                 gt_msg->pose.pose.position.x, gt_msg->pose.pose.position.y, gt_msg->pose.pose.position.z);
-    //     RCLCPP_INFO(this->get_logger(), "Estimated: [%f, %f, %f]", 
-    //                 est_msg->pose.pose.position.x, est_msg->pose.pose.position.y, est_msg->pose.pose.position.z);
-
-    //     // They are in different map frames, so we need to convert them to the same frame
-    //     log_file_<< gt_msg->header.stamp.sec + gt_msg->header.stamp.nanosec * 1e-9 << ", "
-    //              << est_msg->pose.pose.position.x << ", " << est_msg->pose.pose.position.y << ", " << est_msg->pose.pose.position.z<< ", "
-    //              << est_msg->pose.pose.orientation.w << ", " << est_msg->pose.pose.orientation.x << ", " 
-    //              << est_msg->pose.pose.orientation.y << ", " << est_msg->pose.pose.orientation.z << ", "
-    //              << gt_msg->pose.pose.position.x << ", " << gt_msg->pose.pose.position.y << ", " 
-    //              << gt_msg->pose.pose.position.z << ", "
-    //              << gt_msg->pose.pose.orientation.w << ", " 
-    //              << gt_msg->pose.pose.orientation.x << ", " 
-    //              << gt_msg->pose.pose.orientation.y << ", " 
-    //              << gt_msg->pose.pose.orientation.z
-    //              << "\n";
-    //     log_file_.flush();
-
-
-    // }
     void logPoses()
-  {
+    {
     // Lookup both transforms into 'odom'
     geometry_msgs::msg::TransformStamped tf_est, tf_gt;
     rclcpp::Time stamp = this->now();
     try {
 
       tf_est = tf_buffer_.lookupTransform(
-        "sam/odom_gtsam",           
-        "sam/base_link_gtsam",
+        name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+ (frame_suffix_.empty() ? "" : "_" + frame_suffix_),           
+        name_space_ + "/" + sam_msgs::msg::Links::BASE_LINK + (frame_suffix_.empty() ? "" : "_" + frame_suffix_),
         rclcpp::Time(0),   
         tf2::durationFromSec(0.01));
     tf_gt = tf_buffer_.lookupTransform(
-        "sam/odom_gtsam",           
+        name_space_ + "/" + sam_msgs::msg::Links::ODOM_LINK+ (frame_suffix_.empty() ? "" : "_" + frame_suffix_),           
         "sam_mocap/base_link", 
         tf_est.header.stamp,
         tf2::durationFromSec(0.01));
@@ -115,76 +83,79 @@ public:
       RCLCPP_WARN(this->get_logger(), "TF lookup failed: %s", ex.what());
       return;
     }
+    rclcpp::Time now_stamp = tf_est.header.stamp;
+    if (now_stamp <= last_stamp_) {
+      // same or older than what we logged last time → skip
+      return;
+    }
+    last_stamp_ = now_stamp;
+
+    tf2::Quaternion q_est(
+      tf_est.transform.rotation.x,
+      tf_est.transform.rotation.y,
+      tf_est.transform.rotation.z,
+      tf_est.transform.rotation.w );
+    q_est.normalize();
 
 
-  tf2::Quaternion q_est(
-    tf_est.transform.rotation.x,
-    tf_est.transform.rotation.y,
-    tf_est.transform.rotation.z,
-    tf_est.transform.rotation.w );
-  q_est.normalize();
+    tf2::Quaternion q_gt(
+      tf_gt.transform.rotation.x,
+      tf_gt.transform.rotation.y,
+      tf_gt.transform.rotation.z,
+      tf_gt.transform.rotation.w );
+    q_gt.normalize();
 
 
-  tf2::Quaternion q_gt(
-    tf_gt.transform.rotation.x,
-    tf_gt.transform.rotation.y,
-    tf_gt.transform.rotation.z,
-    tf_gt.transform.rotation.w );
-  q_gt.normalize();
+    tf2::Quaternion q_flip;
+    q_flip.setRPY(M_PI, 0.0, 0.0);  
+    q_flip.normalize();
+
+    tf2::Quaternion q_gt_corrected = q_gt * q_flip;
+    q_gt_corrected.normalize();
 
 
-  tf2::Quaternion q_flip;
-  q_flip.setRPY(M_PI, 0.0, 0.0);  
-  q_flip.normalize();
+    tf2::Quaternion q_yaw90;
+    q_yaw90.setRPY(0.0, 0.0, M_PI/2.0);  
+    q_yaw90.normalize();
 
-  tf2::Quaternion q_gt_corrected = q_gt * q_flip;
-  q_gt_corrected.normalize();
-
-
-  tf2::Quaternion q_yaw90;
-  q_yaw90.setRPY(0.0, 0.0, M_PI/2.0);  
-  q_yaw90.normalize();
-
-  tf2::Quaternion q_gt_final = q_gt_corrected;
-  q_gt_final.normalize();
-  const double t = tf_est.header.stamp.sec + tf_est.header.stamp.nanosec * 1e-9;
+    tf2::Quaternion q_gt_final = q_gt_corrected;
+    q_gt_final.normalize();
+    const double t = tf_est.header.stamp.sec + tf_est.header.stamp.nanosec * 1e-9;
 
 
 
-  log_file_ << std::fixed << std::setprecision(6)
-            << t << ", "
-            // Estimated pose (already in ENU):
-            << tf_est.transform.translation.x  << ", "
-            << tf_est.transform.translation.y  << ", "
-            << tf_est.transform.translation.z  << ", "
-            << tf_est.transform.rotation.w     << ", "
-            << tf_est.transform.rotation.x     << ", "
-            << tf_est.transform.rotation.y     << ", "
-            << tf_est.transform.rotation.z     << ", "
-            // GT pose, but *converted* to ENU:
-            << tf_gt.transform.translation.x   << ", "  
-            << tf_gt.transform.translation.y   << ", "
-            << tf_gt.transform.translation.z   << ", "
-            << q_gt_final.getW()           << ", "
-            << q_gt_final.getX()           << ", "
-            << q_gt_final.getY()           << ", "
-            << q_gt_final.getZ()           << "\n";
-  log_file_.flush();
+    log_file_ << std::fixed << std::setprecision(6)
+              << t << ", "
+              // Estimated pose (already in ENU):
+              << tf_est.transform.translation.x  << ", "
+              << tf_est.transform.translation.y  << ", "
+              << tf_est.transform.translation.z  << ", "
+              << tf_est.transform.rotation.w     << ", "
+              << tf_est.transform.rotation.x     << ", "
+              << tf_est.transform.rotation.y     << ", "
+              << tf_est.transform.rotation.z     << ", "
+              // GT pose, but *converted* to ENU:
+              << tf_gt.transform.translation.x   << ", "  
+              << tf_gt.transform.translation.y   << ", "
+              << tf_gt.transform.translation.z   << ", "
+              << q_gt_final.getW()           << ", "
+              << q_gt_final.getX()           << ", "
+              << q_gt_final.getY()           << ", "
+              << q_gt_final.getZ()           << "\n";
+    log_file_.flush();
   }
 
 private:
-    // typedef message_filters::sync_policies::ApproximateTime<nav_msgs::msg::Odometry, nav_msgs::msg::Odometry> sync_policy_;
-    // std::shared_ptr<message_filters::Synchronizer<sync_policy_>> sync_;
-
-    // message_filters::Subscriber<nav_msgs::msg::Odometry> gt_sub_;
-    // message_filters::Subscriber<nav_msgs::msg::Odometry> est_sub_;
     std::string folder_;
     std::ofstream log_file_;
+    std::string frame_suffix_;
+    std::string name_space_;
     tf2_ros::Buffer tf_buffer_;
     tf2_ros::TransformListener tf_listener_;
     rclcpp::TimerBase::SharedPtr timer_;
     geometry_msgs::msg::TransformStamped utm_map_gt_;
     bool have_utm_map_gt_ = false;
+    rclcpp::Time last_stamp_{0, 0, RCL_ROS_TIME};  
 };
 
 

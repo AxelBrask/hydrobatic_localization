@@ -98,6 +98,7 @@ ament_target_dependencies(logger
   tf2_geometry_msgs
   geometry_msgs
   message_filters
+  sam_msgs
   )
 # Insatll the executablese, headers and launch files
 

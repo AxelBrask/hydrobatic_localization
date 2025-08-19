@@ -9,9 +9,12 @@
     <arg name = "bag_file" default = "/home/axel/colcon_ws/rosbag2_2025_07_03-14_52_42"/>
     <arg name="robot_urdf" default="sam_auv.urdf"/>
     <arg name="use_sensor_covariance" default="false"/>
+    <arg name="frame_suffix" default=""/>
+    <arg name="enable_logger" default="false"/>
+    <arg name ="folder" default="results"/>
 
 
-    <executable cmd="ros2 bag play $(var bag_file) --clock --start-offset 10 " output="screen" />
+    <executable cmd="ros2 bag play $(var bag_file) --clock " output="screen" />
     <node pkg="hydrobatic_localization" exec="state_estimator" output="screen" namespace = "$(var robot_name)">
         <param name = "config_file" value = "$(var config_file)"/>
         <param name = "use_sim_time" value = "$(var use_sim_time)"/>
@@ -20,26 +23,24 @@
         <param name = "init_from_ground_truth" value = "$(var init_from_ground_truth)"/>
         <param name = "kf_interval_hz" value = '$(var kf_interval_hz)'/>
         <param name = "use_sensor_covariance" value = "$(var use_sensor_covariance)"/>
+        <param name = "frame_suffix" value = "$(var frame_suffix)"/>
     </node>
 
     <node  pkg="hydrobatic_localization" exec="pressure_pub.py" output="screen" namespace="$(var robot_name)">
         <param name = "use_sim_time" value = "$(var use_sim_time)"/>
         <param name = "robot_name" value = "$(var robot_name)"/>
     </node>
-    
+    <!-- This is for the ground truth positon of the pressure sensor -->
     <node name="robot_state_publisher" pkg="robot_state_publisher" exec="robot_state_publisher" respawn="true" output="screen" namespace="sam" >
         <param name="robot_description" value="$(command 'xacro $(find-pkg-share sam_description)/urdf/$(var robot_urdf).xacro ns:=sam ')"/>
         <param name="frame_prefix" value="sam_mocap/"/>
         <param name="use_tf_static"   value="true"/>
     </node>
-    <node
-        pkg="hydrobatic_localization"
-        exec="logger"
-        output="screen"
-        namespace="$(var robot_name)"
-    >
+
+    <node pkg="hydrobatic_localization" exec="logger" output="screen" namespace="$(var robot_name)" if="$(var enable_logger)">
         <param name="use_sim_time" value="$(var use_sim_time)"/>
         <param name="robot_name"   value="$(var robot_name)"/>
-        <param name="folder"       value="gps_comp"/>
+        <param name="folder"       value="$(var folder)"/>
+        <param name="frame_suffix" value="$(var frame_suffix)"/>
     </node>
 </launch>
